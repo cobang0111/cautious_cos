@@ -13,7 +13,7 @@ The RiverDong/psoups dataset exposes rows as:
 
 This script preserves each uid as a user, uses source row order as the
 within-user history order, and emits the same JSONL shape consumed by
-train_prism_cautious_context_steering_distill.py and
+train_prism_context_steering_distill.py and
 eval_cautious_context_steering_distill.py.
 """
 

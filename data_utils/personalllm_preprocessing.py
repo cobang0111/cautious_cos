@@ -16,7 +16,7 @@ with 50 pairwise interactions:
 
 This script uses the first interactions for support history and the remaining
 interactions as target queries. The JSONL rows are compatible with
-eval_cautious_context_steering_distill.py and train_prism_cautious_context_steering_distill.py.
+eval_cautious_context_steering_distill.py and train_prism_context_steering_distill.py.
 """
 
 from __future__ import annotations

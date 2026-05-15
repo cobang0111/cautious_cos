@@ -43,7 +43,7 @@ except Exception:  # pragma: no cover
 
 
 REPO_ROOT = Path(__file__).resolve().parent
-DEFAULT_TRAIN_SCRIPT = REPO_ROOT / "train_prism_cautious_context_steering_distill.py"
+DEFAULT_TRAIN_SCRIPT = REPO_ROOT / "train_prism_context_steering_distill.py"
 DATASET_DEFAULTS = {
     "prism": (
         "data/prism_cautious_cos_splits/calib_unseen.jsonl",

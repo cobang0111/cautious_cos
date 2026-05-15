@@ -28,6 +28,9 @@ python data_utils/prism_preprocessing.py \
 # Train on PRISM, then evaluate steer_distill across configured datasets
 bash run_all_cautious_context_steering_distill_evals.sh model_name run_name
 
+# Train and evaluate PRISM only
+bash run_prism_cautious_context_steering_distill.sh model_name run_name
+
 # For example
 bash run_all_cautious_context_steering_distill_evals.sh Qwen3-0.6B v260318
 ```
