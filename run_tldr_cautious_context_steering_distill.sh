@@ -28,7 +28,8 @@ if [[ "${SKIP_PREPARE:-0}" != "1" ]]; then
   "${python_bin}" "${script_dir}/data_utils/tldr_preprocessing.py" "${prepare_args[@]}"
 fi
 
-CUDA_VISIBLE_DEVICES=${device} "${python_bin}" "${script_dir}/eval_tldr_cautious_context_steering_distill.py" \
+CUDA_VISIBLE_DEVICES=${device} "${python_bin}" "${script_dir}/eval_cautious_context_steering_distill.py" \
+  --dataset tldr \
   --model_name Qwen/${model_name} \
   --steering_checkpoint "${steering_checkpoint}" \
   --support_jsonl "${support_jsonl}" \

@@ -89,7 +89,8 @@ else
 fi
 
 echo "[all-eval] PRISM steer_distill"
-CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/eval_prism_cautious_context_steering_distill.py" \
+CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/eval_cautious_context_steering_distill.py" \
+  --dataset prism \
   --model_name Qwen/${model_name} \
   --steering_checkpoint "${steering_checkpoint}" \
   --support_jsonl "${prism_support_jsonl}" \

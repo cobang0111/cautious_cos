@@ -49,7 +49,8 @@ if [[ "${SKIP_PREPARE:-0}" != "1" ]]; then
   python "${script_dir}/data_utils/uf_p_4_preprocessing.py" "${split_args[@]}"
 fi
 
-python eval_ultrafeedback_cautious_context_steering_distill.py \
+python "${script_dir}/eval_cautious_context_steering_distill.py" \
+  --dataset ultrafeedback \
   --support_jsonl "${support_jsonl}" \
   --query_jsonl "${query_jsonl}" \
   --model_name Qwen/${model_name} \
