@@ -12,7 +12,7 @@ pip install -r requirements.txt
 python data_utils/get_prism_dataset.py
 
 # PRISM preprocessing for pengram (--history_include_prompt)
-python prism_preprocessing.py \
+python data_utils/prism_preprocessing.py \
   --survey_jsonl data/prism_raw/survey.jsonl \
   --conversations_jsonl data/prism_raw/conversations.jsonl \
   --out_dir data/prism_pengram_splits \

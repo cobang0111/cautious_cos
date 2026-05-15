@@ -29,7 +29,7 @@ prepare_args=(
 )
 
 if [[ "${SKIP_PREPARE:-0}" != "1" ]]; then
-  "${python_bin}" "${script_dir}/personalllm_preprocessing.py" "${prepare_args[@]}"
+  "${python_bin}" "${script_dir}/data_utils/personalllm_preprocessing.py" "${prepare_args[@]}"
 fi
 
 CUDA_VISIBLE_DEVICES=${device} "${python_bin}" "${script_dir}/eval_personalllm_cautious_context_steering_distill.py" \

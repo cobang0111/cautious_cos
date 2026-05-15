@@ -46,7 +46,7 @@ if [[ "${SKIP_PREPARE:-0}" != "1" ]]; then
   if [[ "${SKIP_UF_DATASET:-0}" != "1" ]]; then
     python "${script_dir}/data_utils/get_uf_p_4_dataset.py" "${prepare_args[@]}"
   fi
-  python "${script_dir}/uf_p_4_preprocessing.py" "${split_args[@]}"
+  python "${script_dir}/data_utils/uf_p_4_preprocessing.py" "${split_args[@]}"
 fi
 
 python eval_ultrafeedback_cautious_context_steering_distill.py \
