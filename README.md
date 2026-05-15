@@ -1,4 +1,9 @@
-# Cautious CoS
+<h1 align="center">Cautious Context Steering </h1>
+
+<p align="center"> Gihoon Kim<sup>1 *</sup>, Jeyoung Lee<sup>1 *</sup>, Suhan Woo<sup>1</sup>, Sekwon Oh<sup>1</sup>, Minsu Jeon<sup>1</sup> and Euntai Kim<sup>1, 2 </sup> </p>
+
+<p align="center"> <sup>1</sup> Yonsei University, <sup>2</sup> Korea Institute of Science and Technology </p>
+
 
 ## Introduction
 
