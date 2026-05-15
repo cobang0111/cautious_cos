@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build PRISM -> Pengram JSONL splits with user-disjoint, chronological protocols.
+Build PRISM -> context-steering JSONL splits with user-disjoint, chronological protocols.
 
 Outputs:
 - seen_train.jsonl: train users, earlier conversations only
@@ -8,7 +8,7 @@ Outputs:
 - calib_unseen.jsonl: unseen users, support interactions for adaptation/calibration
 - test_unseen.jsonl: unseen users, later interactions for evaluation
 
-Each JSONL row is compatible with train_pengram_last_layer_prism.py and contains:
+Each JSONL row is compatible with train_prism_cautious_context_steering_distill.py and contains:
 {
   "messages": [...],
   "chosen": str,

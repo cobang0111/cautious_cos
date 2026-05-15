@@ -2,8 +2,7 @@
 """
 Train a PRISM context-steering distillation adapter.
 
-This script intentionally does not import train_pengram_history_bucket.py.  It
-keeps the base LM frozen, uses ICL as a teacher only during training, and learns
+It keeps the base LM frozen, uses ICL as a teacher only during training, and learns
 an inference-time support-logit steering module conditioned on a prompt vector,
 a user-context vector, and the current generation hidden state.
 """
@@ -53,7 +52,6 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--valid_jsonl", type=str, default="")
     ap.add_argument("--output_dir", type=str, required=True)
     ap.add_argument("--resume_steering", type=str, default="")
-    ap.add_argument("--resume_pengram", type=str, default="", help="Compatibility alias for older eval scripts.")
 
     ap.add_argument("--model_name", type=str, default="Qwen/Qwen3.5-0.8B-Base")
     ap.add_argument("--trust_remote_code", action="store_true")
@@ -783,9 +781,6 @@ class ContextSteeringDistillModel(nn.Module):
         excluded = ("base_model.", "text_backbone.", "input_embeddings.", "output_head.")
         return {k: v for k, v in self.state_dict().items() if not k.startswith(excluded)}
 
-    def pengram_state_dict(self) -> Dict[str, torch.Tensor]:
-        return self.steering_state_dict()
-
     def load_steering_state_dict(self, state: Dict[str, torch.Tensor]) -> None:
         missing, unexpected = self.load_state_dict(state, strict=False)
         missing = [m for m in missing if not m.startswith(("base_model.", "text_backbone.", "input_embeddings.", "output_head."))]
@@ -793,9 +788,6 @@ class ContextSteeringDistillModel(nn.Module):
             print(f"[load_steering] Missing keys: {missing}")
         if unexpected and is_main_process():
             print(f"[load_steering] Unexpected keys: {unexpected}")
-
-    def load_pengram_state_dict(self, state: Dict[str, torch.Tensor]) -> None:
-        self.load_steering_state_dict(state)
 
     def _zero(self, ref: torch.Tensor) -> torch.Tensor:
         return ref.float().sum() * 0.0
@@ -1510,10 +1502,6 @@ class ContextSteeringDistillModel(nn.Module):
             "user_latent_norm": user_info["user_latent_norm"].detach(),
         }
 
-
-PengramModel = ContextSteeringDistillModel
-
-
 def move_batch_to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
     return {k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v for k, v in batch.items()}
 
@@ -1720,10 +1708,7 @@ def save_checkpoint(model: nn.Module, tokenizer: Any, args: argparse.Namespace, 
     core = model.module if isinstance(model, DDP) else model
     state = core.steering_state_dict()
     torch.save(state, ckpt_dir / "steering.pt")
-    torch.save(state, ckpt_dir / "pengram.pt")
     with open(ckpt_dir / "steering_args.json", "w", encoding="utf-8") as f:
-        json.dump(vars(args), f, ensure_ascii=False, indent=2)
-    with open(ckpt_dir / "pengram_args.json", "w", encoding="utf-8") as f:
         json.dump(vars(args), f, ensure_ascii=False, indent=2)
     tokenizer.save_pretrained(ckpt_dir / "tokenizer")
     _remove_old_checkpoints(output_dir, int(getattr(args, "keep_last_n", 3)))
@@ -1734,11 +1719,7 @@ def maybe_load_resume(model: nn.Module, resume_path: str) -> None:
         return
     p = Path(resume_path)
     if p.is_dir():
-        for name in ("steering.pt", "pengram.pt"):
-            cand = p / name
-            if cand.exists():
-                p = cand
-                break
+        p = p / "steering.pt"
     state = torch.load(p, map_location="cpu")
     core = model.module if isinstance(model, DDP) else model
     core.load_steering_state_dict(state)
@@ -1802,9 +1783,8 @@ def main() -> None:
         )
 
     model = ContextSteeringDistillModel(handles, args).to(device)
-    resume_path = args.resume_steering or args.resume_pengram
-    if resume_path:
-        maybe_load_resume(model, resume_path)
+    if args.resume_steering:
+        maybe_load_resume(model, args.resume_steering)
 
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build PersonalLLM InteractionDatabase -> PRISM/Pengram-compatible JSONL splits.
+Build PersonalLLM InteractionDatabase -> PRISM/context-steering-compatible JSONL splits.
 
 Each row in namkoong-lab/PersonalLLM_InteractionDatabase is one simulated person
 with 50 pairwise interactions:
@@ -16,7 +16,7 @@ with 50 pairwise interactions:
 
 This script uses the first interactions for support history and the remaining
 interactions as target queries. The JSONL rows are compatible with
-test_pengram_history_generation.py and train_prism_cautious_context_steering_distill.py.
+eval_cautious_context_steering_distill.py and train_prism_cautious_context_steering_distill.py.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ def history_text_from_pairs(pairs: Sequence[Dict[str, str]], include_prompt: boo
     return "\n".join(lines)
 
 
-def to_pengram_record(
+def to_preference_record(
     *,
     row: Dict[str, Any],
     interaction: Dict[str, str],
@@ -208,7 +208,7 @@ def build_support_query_splits(
         for interaction_idx, interaction in support:
             support_out.append(
                 clear_eval_history(
-                    to_pengram_record(
+                    to_preference_record(
                         row=row,
                         interaction=interaction,
                         interaction_idx=interaction_idx,
@@ -226,7 +226,7 @@ def build_support_query_splits(
         for interaction_idx, interaction in query:
             query_out.append(
                 clear_eval_history(
-                    to_pengram_record(
+                    to_preference_record(
                         row=row,
                         interaction=interaction,
                         interaction_idx=interaction_idx,

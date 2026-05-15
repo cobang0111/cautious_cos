@@ -613,14 +613,12 @@ class CautiousContextSteeringDistillModel(base.ContextSteeringDistillModel):
         }
 
 
-PengramModel = CautiousContextSteeringDistillModel
 ContextSteeringDistillModel = CautiousContextSteeringDistillModel
 
 
 def main() -> None:
     base.parse_args = parse_args
     base.ContextSteeringDistillModel = CautiousContextSteeringDistillModel
-    base.PengramModel = CautiousContextSteeringDistillModel
     base.main()
 
 

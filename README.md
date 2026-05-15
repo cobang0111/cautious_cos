@@ -2,8 +2,8 @@
 Clone this repository and run:
 
 ```bash
-conda create -n pengram python=3.11
-conda activate pengram
+conda create -n cautious_cos python=3.11
+conda activate cautious_cos
 pip install -r requirements.txt
 ```
 ### ✨Experiments
@@ -11,7 +11,7 @@ pip install -r requirements.txt
 # get PRISM raw data
 python data_utils/get_prism_dataset.py
 
-# PRISM preprocessing for pengram (--history_include_prompt)
+# PRISM preprocessing for context steering
 python data_utils/prism_preprocessing.py \
   --survey_jsonl data/prism_raw/survey.jsonl \
   --conversations_jsonl data/prism_raw/conversations.jsonl \
@@ -25,14 +25,11 @@ python data_utils/prism_preprocessing.py \
   --history_conversations 4 \
   --history_include_prompt
 
-# Train and test pengram
-bash run_pengram.sh model_name run_name 
+# Train on PRISM, then evaluate steer_distill across configured datasets
+bash run_all_cautious_context_steering_distill_evals.sh model_name run_name
 
 # For example
-bash run_pengram.sh Qwen3-0.6B v260318
-
-# Train and test pengram on 2 GPU
-bash run_pengram_multi-gpu.sh model_name run_name 
+bash run_all_cautious_context_steering_distill_evals.sh Qwen3-0.6B v260318
 ```
 
 ### 주요 결과 지표 

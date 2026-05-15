@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build OpenAI TLDR comparisons -> PRISM/Pengram-compatible JSONL splits.
+Build OpenAI TLDR comparisons -> PRISM/context-steering-compatible JSONL splits.
 
 The openai/summarize_from_feedback comparisons config exposes rows as:
 {
@@ -166,7 +166,7 @@ def history_text_from_pairs(pairs: Sequence[Dict[str, str]], include_prompt: boo
     return "\n".join(lines)
 
 
-def to_pengram_record(
+def to_preference_record(
     row: Dict[str, Any],
     *,
     source_split: str,
@@ -243,7 +243,7 @@ def build_train_valid_splits(
         for row in train_rows:
             if len(prior) >= args.min_history_pairs:
                 train_out.append(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         source_split=args.train_split,
                         output_split="seen_train",
@@ -260,7 +260,7 @@ def build_train_valid_splits(
         for row in valid_rows:
             if len(prior) >= args.min_history_pairs:
                 valid_out.append(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         source_split=args.train_split,
                         output_split="seen_valid",
@@ -303,7 +303,7 @@ def build_support_query_splits(
         for row in support_rows:
             support_out.append(
                 clear_eval_history(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         source_split=args.eval_split,
                         output_split="calib_unseen",
@@ -319,7 +319,7 @@ def build_support_query_splits(
         for row in query_rows:
             query_out.append(
                 clear_eval_history(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         source_split=args.eval_split,
                         output_split="test_unseen",

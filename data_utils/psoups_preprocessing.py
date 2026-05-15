@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build PSOUPS -> PRISM/Pengram-compatible JSONL splits.
+Build PSOUPS -> PRISM/context-steering-compatible JSONL splits.
 
 The RiverDong/psoups dataset exposes rows as:
 {
@@ -14,7 +14,7 @@ The RiverDong/psoups dataset exposes rows as:
 This script preserves each uid as a user, uses source row order as the
 within-user history order, and emits the same JSONL shape consumed by
 train_prism_cautious_context_steering_distill.py and
-test_pengram_history_generation.py.
+eval_cautious_context_steering_distill.py.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def history_text_from_pairs(pairs: Sequence[Dict[str, str]], include_prompt: boo
     return "\n".join(lines)
 
 
-def to_pengram_record(
+def to_preference_record(
     row: Dict[str, Any],
     *,
     config_name: str,
@@ -182,7 +182,7 @@ def build_train_valid_splits(
         for row in train_rows:
             if len(prior) >= args.min_history_pairs:
                 train_out.append(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         config_name=args.config_name,
                         source_split=args.train_split,
@@ -200,7 +200,7 @@ def build_train_valid_splits(
         for row in valid_rows:
             if len(prior) >= args.min_history_pairs:
                 valid_out.append(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         config_name=args.config_name,
                         source_split=args.train_split,
@@ -243,7 +243,7 @@ def build_support_query_splits(
         for row in support_rows:
             support_out.append(
                 clear_eval_history(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         config_name=args.config_name,
                         source_split=args.test_split,
@@ -260,7 +260,7 @@ def build_support_query_splits(
         for row in query_rows:
             query_out.append(
                 clear_eval_history(
-                    to_pengram_record(
+                    to_preference_record(
                         row,
                         config_name=args.config_name,
                         source_split=args.test_split,

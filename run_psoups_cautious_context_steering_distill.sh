@@ -47,6 +47,6 @@ CUDA_VISIBLE_DEVICES=${device} "${python_bin}" "${script_dir}/eval_cautious_cont
   --cos_history_mode chosen_only \
   --cos_history_include_prompt \
   --cos_lambda -0.1 \
-  --pengram_history_mode chosen_only \
-  --pengram_history_include_prompt \
+  --steering_history_mode chosen_only \
+  --steering_history_include_prompt \
   --systems "${systems[@]}"

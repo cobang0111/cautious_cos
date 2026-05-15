@@ -23,7 +23,7 @@ wandb_args=()
 if [[ "${USE_WANDB:-1}" == "1" ]]; then
   wandb_args=(
     --use_wandb
-    --wandb_project "${WANDB_PROJECT:-pengram_distill}"
+    --wandb_project "${WANDB_PROJECT:-context_steering_distill}"
     --wandb_run_name "${model_name}_${version_name}"
   )
 fi
@@ -108,8 +108,8 @@ CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/eval_cautious_context_steer
   --cos_history_mode chosen_only \
   --cos_history_include_prompt \
   --cos_lambda -0.1 \
-  --pengram_history_mode chosen_only \
-  --pengram_history_include_prompt \
+  --steering_history_mode chosen_only \
+  --steering_history_include_prompt \
   --systems steer_distill
 
 echo "[all-eval] UltraFeedback steer_distill"

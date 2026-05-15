@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert UltraFeedback P_4 survey-context JSONL into Pengram-compatible splits."""
+"""Convert UltraFeedback P_4 survey-context JSONL into context-steering-compatible splits."""
 
 from __future__ import annotations
 
@@ -301,7 +301,7 @@ def build_support_query_splits(
     return support_rows, query_rows, per_subset
 
 
-def build_pengram_splits(args: argparse.Namespace, generated_data_dir: Path, source_root: Path, out_dir: Path) -> None:
+def build_history_splits(args: argparse.Namespace, generated_data_dir: Path, source_root: Path, out_dir: Path) -> None:
     subsets = infer_generated_subsets(generated_data_dir, args.other_subsets)
     train_rows: List[Dict[str, Any]] = []
     valid_rows: List[Dict[str, Any]] = []
@@ -405,7 +405,7 @@ def main() -> None:
     generated_data_dir = default_generated_data_dir(args)
     out_dir = default_out_dir(args)
     random.seed(int(args.seed))
-    build_pengram_splits(args, generated_data_dir, source_root, out_dir)
+    build_history_splits(args, generated_data_dir, source_root, out_dir)
 
 
 if __name__ == "__main__":
