@@ -9,7 +9,7 @@ pip install -r requirements.txt
 ### ✨Experiments
 ```bash
 # get PRISM raw data
-python get_prism_dataset.py
+python data_utils/get_prism_dataset.py
 
 # PRISM preprocessing for pengram (--history_include_prompt)
 python prism_preprocessing.py \

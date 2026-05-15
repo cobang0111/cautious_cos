@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 model_name="${1:-}"
 version_name="${2:-cautious_context_steering}"
 device="${3:-0}"
@@ -42,9 +44,9 @@ split_args=(
 
 if [[ "${SKIP_PREPARE:-0}" != "1" ]]; then
   if [[ "${SKIP_UF_DATASET:-0}" != "1" ]]; then
-    python get_uf_p_4_dataset.py "${prepare_args[@]}"
+    python "${script_dir}/data_utils/get_uf_p_4_dataset.py" "${prepare_args[@]}"
   fi
-  python uf_p_4_preprocessing.py "${split_args[@]}"
+  python "${script_dir}/uf_p_4_preprocessing.py" "${split_args[@]}"
 fi
 
 python eval_ultrafeedback_cautious_context_steering_distill.py \
