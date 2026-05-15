@@ -42,7 +42,7 @@ echo "[all-eval] model=${model_name} version=${version_name} device=${device} sk
 
 if [[ "${skip_train}" != "1" ]]; then
   echo "[all-eval] train PRISM cautious context-steering distill"
-  CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/train_prism_context_steering_distill.py" \
+  CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/train_prism_cautious_context_steering_distill.py" \
     --model_name Qwen/${model_name} \
     --train_jsonl "${train_jsonl}" \
     --valid_jsonl "${valid_jsonl}" \

@@ -27,7 +27,7 @@ if [[ "${USE_WANDB:-1}" == "1" ]]; then
 fi
 
 if [[ "${skip_train}" != "1" ]]; then
-  CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/train_prism_context_steering_distill.py" \
+  CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/train_prism_cautious_context_steering_distill.py" \
     --model_name Qwen/${model_name} \
     --train_jsonl "${train_jsonl}" \
     --valid_jsonl "${valid_jsonl}" \
