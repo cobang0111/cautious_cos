@@ -10,3 +10,6 @@ wandb
 datasets
 bert-score
 rouge-score
+streamlit
+pandas
+plotly

@@ -2,9 +2,9 @@
 
 ## Introduction
 
-이 레포지토리는 사용자별 과거 선호 이력을 이용해 LLM 출력을 조심스럽게 조향하는 `cautious context steering` 실험 코드입니다. 핵심 아이디어는 PRISM 데이터로 학습한 작은 steering adapter가, 과거 이력이 실제로 도움이 될 때만 base model의 다음 토큰 분포를 조정하고, 도움이 불확실한 경우에는 base 분포를 최대한 보존하도록 학습하는 것입니다.
+이 Repo는 user별 과거 선호 history를 이용해 LLM 출력을 steering 하는 `cautious context steering` 실험 코드입니다. 핵심 아이디어는 PRISM 데이터로 학습한 작은 steering adapter가, 과거 이력이 실제로 도움이 될 때만 base model의 다음 토큰 분포를 조정하고, 도움이 불확실한 경우에는 base 분포를 최대한 보존하도록 학습하는 것입니다.
 
-메인 실행 경로는 `run_all_cautious_context_steering_distill_evals.sh`입니다. 이 스크립트는 PRISM으로 cautious steering adapter를 학습한 뒤 PRISM, UltraFeedback P_4, PSOUPS, TLDR, PersonalLLM 평가를 한 번에 실행합니다.
+메인 실행 경로는 `run_all_cautious_context_steering_distill_evals.sh`입니다. 이 스크립트는 PRISM으로 cautious steering adapter를 학습한 뒤 PRISM(ID), UltraFeedback P_4, PSOUPS, TLDR, PersonalLLM (OOD) 평가를 한 번에 실행합니다.
 
 ## Environment
 
@@ -52,7 +52,7 @@ SKIP_PREPARE=1 bash run_all_cautious_context_steering_distill_evals.sh Qwen3-0.6
 
 UltraFeedback의 원본 생성 단계만 건너뛰고 split 생성은 다시 하고 싶다면 `SKIP_UF_DATASET=1`을 사용하세요.
 
-## Train And Evaluate All
+## Train & Evaluate All
 
 기본 실행:
 
@@ -106,26 +106,43 @@ runs/all_eval_tldr_top40_<model_name>_<version_name>_steer_distill/
 runs/all_eval_personalllm_<model_name>_<version_name>_steer_distill/
 ```
 
-각 평가 디렉터리에는 `summary.json`과 `predictions_budget*_steer_distill.jsonl`이 저장됩니다.
+각 평가 디렉터리에는 `summary.json`과 `predictions_budget*_<system>.jsonl`이 저장됩니다.
 
-## Useful Environment Variables
+## Comparison with Baselines
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `TRAIN_JSONL` | `data/prism_cautious_cos_splits/seen_train.jsonl` | PRISM train split |
-| `VALID_JSONL` | `data/prism_cautious_cos_splits/seen_valid.jsonl` | PRISM validation split |
-| `SUPPORT_JSONL` | `data/prism_cautious_cos_splits/calib_unseen.jsonl` | PRISM support split |
-| `QUERY_JSONL` | `data/prism_cautious_cos_splits/test_unseen.jsonl` | PRISM query split |
-| `RUN_DIR` | `runs/prism_cautious_context_steering_distill_<model>_<version>` | 학습 출력 디렉터리 |
-| `STEERING_CHECKPOINT` | `${RUN_DIR}/last` | 평가에 사용할 checkpoint |
-| `SKIP_TRAIN` | `0` | `1`이면 PRISM 학습 생략 |
-| `SKIP_PREPARE` | `0` | `1`이면 non-PRISM 데이터 준비 생략 |
-| `SKIP_UF_DATASET` | `0` | `1`이면 UltraFeedback 원본 생성 단계만 생략 |
-| `USE_WANDB` | `1` | `0`이면 wandb 비활성화 |
-| `UF_SURVEY_SIZE` | `16` | UltraFeedback survey size |
-| `TLDR_TOP_WORKERS` | `40` | TLDR에서 사용할 상위 worker 수 |
-| `PERSONALLLM_MAX_PERSONS` | `1000` | PersonalLLM 평가 person 수 |
-| `PERSONALLLM_MAX_QUERY_PER_PERSON` | `5` | PersonalLLM person별 query 제한 |
+평가 스크립트의 `--systems` 인자는 여러 시스템을 한 번에 받을 수 있습니다. `run_all_cautious_context_steering_distill_evals.sh`에서는 `SYSTEMS` 환경변수로 이를 넘깁니다.
+
+```bash
+SYSTEMS="base icl cos cautious-cos" \
+bash run_all_cautious_context_steering_distill_evals.sh Qwen3-0.6B cautious_context_steering 0
+```
+
+각 system의 의미는 다음과 같습니다.
+
+- `base`: 사용자 history 없이 base LM만 사용합니다.
+- `icl`: support examples를 prompt에 직접 붙이는 in-context learning baseline입니다.
+- `cos`: history-conditioned prompt와 base prompt의 logits를 섞는 CoS baseline입니다.
+- `cautious-cos`: 학습된 cautious context steering adapter입니다. 내부 저장명은 기존 코드 호환을 위해 `steer_distill`로 정규화됩니다.
+
+여러 system을 같이 돌리면 각 평가 디렉터리에 `predictions_budget<k>_<system>.jsonl` 파일이 system별로 저장되고, `summary.json` 안에도 system별 metric이 함께 기록됩니다. `cautious-cos` 결과 파일은 `predictions_budget<k>_steer_distill.jsonl` 이름으로 저장됩니다.
+
+## Streamlit Comparison Dashboard
+
+여러 baseline 결과를 시각적으로 비교하려면 Streamlit 대시보드를 실행하세요.
+
+```bash
+streamlit run streamlit_compare_evals.py
+```
+
+대시보드는 기본적으로 `runs/` 아래의 모든 `summary.json`과 `predictions_budget*.jsonl` 파일을 찾아서 사용합니다. 지원 기능은 다음과 같습니다.
+
+- PRISM, UltraFeedback P_4, PSOUPS, TLDR, PersonalLLM 전체 dataset 결과 비교
+- `base`, `icl`, `cos`, `cautious-cos` system별 metric table
+- `rouge1_f1`, `rougeL_f1`, `bertscore_f1`, `prefsim_margin`, `policy_preference_acc` 등 지표별 grouped bar chart
+- user id가 최대한 겹치지 않도록 고른 generation examples
+- 각 example에서 preference history, chosen/rejected reference, baseline별 generation을 나란히 확인
+
+history 비교를 보려면 현재 코드로 evaluation을 다시 실행해야 합니다. 새 evaluation output에는 `user_history_text`와 `user_history_pairs`가 prediction JSONL에 함께 저장됩니다.
 
 ## PRISM Only
 
@@ -140,15 +157,13 @@ bash run_prism_cautious_context_steering_distill.sh Qwen3-0.6B cautious_context_
 주요 평가 지표:
 
 - `policy_preference_acc`: teacher-forced chosen/rejected preference accuracy
-- `policy_token_acc`: target token accuracy
-- `policy_first_token_acc`: first target token accuracy
 - `rouge1_f1`, `rougeL_f1`: lexical generation similarity
 - `bertscore_f1`: semantic generation similarity
-- `prefsim_margin`: generated response가 chosen에 rejected보다 더 가까운지 보는 preference similarity 차이
 
 ## Core Files
 
 - `train_prism_cautious_context_steering_distill.py`: cautious context steering adapter 학습
 - `eval_cautious_context_steering_distill.py`: 모든 데이터셋 공통 평가 엔트리포인트
 - `run_all_cautious_context_steering_distill_evals.sh`: PRISM 학습 후 전체 데이터셋 평가
+- `streamlit_compare_evals.py`: dataset/system별 평가 결과 비교 대시보드
 - `data_utils/`: 데이터셋 다운로드와 전처리 스크립트

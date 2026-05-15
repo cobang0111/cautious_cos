@@ -23,6 +23,7 @@ support_jsonl="${SUPPORT_JSONL:-${out_dir}/calib_unseen.jsonl}"
 query_jsonl="${QUERY_JSONL:-${out_dir}/test_unseen.jsonl}"
 steering_checkpoint="${STEERING_CHECKPOINT:-runs/prism_cautious_context_steering_distill_${model_name}_${version_name}/last}"
 save_dir="${SAVE_DIR:-runs/ultrafeedback_${other_subsets}_${dataset_name}_${model_name}_${version_name}_steer_distill_eval}"
+systems=(${SYSTEMS:-steer_distill})
 
 prepare_args=(
   --other_subsets "${other_subsets}"
@@ -57,7 +58,7 @@ python "${script_dir}/eval_cautious_context_steering_distill.py" \
   --steering_checkpoint "${steering_checkpoint}" \
   --support_budgets 4 \
   --strict_support_budget \
-  --systems steer_distill \
+  --systems "${systems[@]}" \
   --icl_mode chosen_only \
   --icl_include_prompt \
   --cos_history_mode chosen_only \

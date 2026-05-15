@@ -18,6 +18,7 @@ steering_checkpoint="${STEERING_CHECKPOINT:-${run_dir}/last}"
 
 skip_train="${SKIP_TRAIN:-0}"
 skip_prepare="${SKIP_PREPARE:-0}"
+systems=(${SYSTEMS:-steer_distill})
 
 wandb_args=()
 if [[ "${USE_WANDB:-1}" == "1" ]]; then
@@ -38,7 +39,7 @@ personalllm_max_persons="${PERSONALLLM_MAX_PERSONS:-1000}"
 personalllm_max_query_per_person="${PERSONALLLM_MAX_QUERY_PER_PERSON:-5}"
 
 echo "[all-eval] checkpoint=${steering_checkpoint}"
-echo "[all-eval] model=${model_name} version=${version_name} device=${device} skip_train=${skip_train} skip_prepare=${skip_prepare}"
+echo "[all-eval] model=${model_name} version=${version_name} device=${device} skip_train=${skip_train} skip_prepare=${skip_prepare} systems=${systems[*]}"
 
 if [[ "${skip_train}" != "1" ]]; then
   echo "[all-eval] train PRISM cautious context-steering distill"
@@ -110,11 +111,12 @@ CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/eval_cautious_context_steer
   --cos_lambda -0.1 \
   --cautious_cos_history_mode chosen_only \
   --cautious_cos_history_include_prompt \
-  --systems steer_distill
+  --systems "${systems[@]}"
 
 echo "[all-eval] UltraFeedback steer_distill"
 env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
   STEERING_CHECKPOINT="${steering_checkpoint}" \
+  SYSTEMS="${systems[*]}" \
   SKIP_PREPARE="${skip_prepare}" \
   SAVE_DIR="${UF_SAVE_DIR:-runs/all_eval_ultrafeedback_${uf_other_subsets}_${uf_dataset_name}_${model_name}_${version_name}_steer_distill}" \
   bash "${script_dir}/run_ultrafeedback_cautious_context_steering_distill.sh" \
@@ -128,7 +130,7 @@ env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
 echo "[all-eval] PSOUPS steer_distill"
 env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
   STEERING_CHECKPOINT="${steering_checkpoint}" \
-  SYSTEMS="steer_distill" \
+  SYSTEMS="${systems[*]}" \
   SKIP_PREPARE="${skip_prepare}" \
   SAVE_DIR="${PSOUPS_SAVE_DIR:-runs/all_eval_psoups_${psoups_config}_${model_name}_${version_name}_steer_distill}" \
   bash "${script_dir}/run_psoups_cautious_context_steering_distill.sh" \
@@ -140,7 +142,7 @@ env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
 echo "[all-eval] TLDR steer_distill"
 env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
   STEERING_CHECKPOINT="${steering_checkpoint}" \
-  SYSTEMS="steer_distill" \
+  SYSTEMS="${systems[*]}" \
   SKIP_PREPARE="${skip_prepare}" \
   SAVE_DIR="${TLDR_SAVE_DIR:-runs/all_eval_tldr_top${tldr_top_workers}_${model_name}_${version_name}_steer_distill}" \
   bash "${script_dir}/run_tldr_cautious_context_steering_distill.sh" \
@@ -152,7 +154,7 @@ env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
 echo "[all-eval] PersonalLLM steer_distill"
 env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
   STEERING_CHECKPOINT="${steering_checkpoint}" \
-  SYSTEMS="steer_distill" \
+  SYSTEMS="${systems[*]}" \
   SKIP_PREPARE="${skip_prepare}" \
   SAVE_DIR="${PERSONALLLM_SAVE_DIR:-runs/all_eval_personalllm_${model_name}_${version_name}_steer_distill}" \
   bash "${script_dir}/run_personalllm_cautious_context_steering_distill.sh" \

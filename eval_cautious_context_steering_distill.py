@@ -83,6 +83,11 @@ DATASET_ALIASES = {
 
 def parse_args() -> argparse.Namespace:
     dataset_choices = sorted(set(DATASET_DEFAULTS) | set(DATASET_ALIASES))
+    system_aliases = {
+        "cautious-cos": "steer_distill",
+        "cautious_cos": "steer_distill",
+    }
+    system_choices = ["base", "icl", "icl_rag", "cos", "cos_history", "steer_distill", "cautious-cos", "cautious_cos", "lora_sft"]
     ap = argparse.ArgumentParser(description="Unified generation and policy evaluation for cautious context steering distill.")
     ap.add_argument("--dataset", type=str, default="", choices=dataset_choices)
     ap.add_argument("--train_script", type=str, default="")
@@ -196,10 +201,11 @@ def parse_args() -> argparse.Namespace:
         "--systems",
         nargs="+",
         default=["base", "icl", "cos", "steer_distill"],
-        choices=["base", "icl", "icl_rag", "cos", "cos_history", "steer_distill", "lora_sft"],
+        choices=system_choices,
     )
     ap.add_argument("--gen_batch_size", type=int, default=16)
     args = ap.parse_args()
+    args.systems = [system_aliases.get(system, system) for system in args.systems]
 
     if args.dataset:
         dataset = DATASET_ALIASES.get(args.dataset, args.dataset)
@@ -1640,6 +1646,9 @@ def generate_rows_for_system(
                 "support_budget": meta.get("support_budget", None),
                 "system": system_name,
                 "prompt_text": prompt_text,
+                "user_history_text": row.get("user_history_text", ""),
+                "user_history_pairs": row.get("user_history_pairs", []),
+                "user_profile_text": row.get("user_profile_text", row.get("user_profile", "")),
                 "generated": generated,
                 "chosen": row.get("chosen", ""),
                 "rejected": row.get("rejected", ""),

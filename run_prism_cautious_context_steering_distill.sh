@@ -16,6 +16,7 @@ run_dir="${RUN_DIR:-runs/prism_cautious_context_steering_distill_${model_name}_$
 eval_dir="${EVAL_DIR:-runs/prism_cautious_context_steering_distill_eval_${model_name}_${version_name}}"
 steering_checkpoint="${STEERING_CHECKPOINT:-${run_dir}/last}"
 skip_train="${SKIP_TRAIN:-0}"
+systems=(${SYSTEMS:-steer_distill})
 
 wandb_args=()
 if [[ "${USE_WANDB:-1}" == "1" ]]; then
@@ -92,4 +93,4 @@ CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/eval_cautious_context_steer
   --cos_lambda -0.1 \
   --cautious_cos_history_mode chosen_only \
   --cautious_cos_history_include_prompt \
-  --systems steer_distill
+  --systems "${systems[@]}"
