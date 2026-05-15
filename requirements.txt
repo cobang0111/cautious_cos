@@ -5,6 +5,7 @@ peft>=0.14.0
 tqdm>=4.66
 safetensors>=0.4.5
 torch
+numpy
 wandb
 datasets
 bert-score

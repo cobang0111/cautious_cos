@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build UltraFeedback P_4 data and Pengram-compatible support/query splits."""
+"""Convert UltraFeedback P_4 survey-context JSONL into Pengram-compatible splits."""
 
 from __future__ import annotations
 
@@ -7,36 +7,21 @@ import argparse
 import json
 import random
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
-
-import numpy as np
-import torch
-
-from data_utils.add_survey_contexts import ScriptArguments as ContextArguments
-from data_utils.add_survey_contexts import as_bool, generate_contexts, load_input_dataset
-from data_utils.ultrafeedback_augment import inner_join
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 
 DEFAULT_SUBSETS = {
     "single": ["8", "4", "2", "1"],
     "84": ["8", "4"],
 }
-USER_TYPES = {
-    "8": (1, 0, 0, 0),
-    "4": (0, 1, 0, 0),
-    "2": (0, 0, 1, 0),
-    "1": (0, 0, 0, 1),
-}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare UltraFeedback P_4 data for cautious context-steering eval.")
-    parser.add_argument("--model_type", type=str, default="Qwen/Qwen3-0.6B")
+    parser = argparse.ArgumentParser(description="Prepare UltraFeedback P_4 splits for cautious context-steering eval.")
     parser.add_argument("--other_subsets", type=str, default="single", choices=sorted(DEFAULT_SUBSETS))
     parser.add_argument("--dataset_name", type=str, default="P_4")
     parser.add_argument("--survey_size", type=int, default=16)
-    parser.add_argument("--history_items", type=int, default=4)
-    parser.add_argument("--with_embeddings", type=str, default="False")
+    parser.add_argument("--history_items", type=int, default=4, help="Compatibility alias for context/history length.")
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--source_root", type=str, default="")
@@ -49,8 +34,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval_support_ratio", type=float, default=1.0)
     parser.add_argument("--min_eval_support_rows", type=int, default=4)
 
-    parser.add_argument("--skip_augment", action="store_true", help="Do not rebuild data/UltraFeedback_<subset>_<name>.")
-    parser.add_argument("--skip_contexts", action="store_true", help="Do not rebuild data/<name>_survey_<n>/<model_type>.")
     parser.add_argument("--skip_splits", action="store_true", help="Do not build train/valid/test/calib_unseen/test_unseen JSONL.")
     return parser.parse_args()
 
@@ -116,7 +99,7 @@ def default_source_root(args: argparse.Namespace) -> Path:
 
 
 def default_generated_data_dir(args: argparse.Namespace) -> Path:
-    return Path(args.generated_data_dir or f"data/{args.dataset_name}_survey_{args.survey_size}/{args.model_type}")
+    return Path(args.generated_data_dir or f"data/{args.dataset_name}_survey_{args.survey_size}")
 
 
 def default_out_dir(args: argparse.Namespace) -> Path:
@@ -318,72 +301,6 @@ def build_support_query_splits(
     return support_rows, query_rows, per_subset
 
 
-def build_augmented_dataset(args: argparse.Namespace, source_root: Path) -> None:
-    from datasets import load_dataset
-
-    user_types = {subset: USER_TYPES[subset] for subset in subsets_for(args.other_subsets)}
-    random.seed(int(args.seed))
-    np.random.seed(int(args.seed))
-    torch.manual_seed(int(args.seed))
-    torch.cuda.manual_seed(int(args.seed))
-
-    ultra_feedback = load_dataset("openbmb/UltraFeedback")
-    binarized_cleaned = load_dataset("argilla/ultrafeedback-binarized-preferences-cleaned")
-    length = len(binarized_cleaned["train"])
-    test_ids = list(np.random.choice(length, int(length * 0.1), replace=False))
-    train_split = binarized_cleaned["train"].filter(lambda example, idx: idx not in test_ids, with_indices=True)
-    test_split = binarized_cleaned["train"].filter(lambda example, idx: idx in test_ids, with_indices=True)
-
-    print("start processing train split")
-    joined_train = inner_join(ultra_feedback["train"], train_split, args.other_subsets, user_types)
-    print("start processing test split")
-    joined_test = inner_join(ultra_feedback["train"], test_split, args.other_subsets, user_types)
-
-    for subset in user_types:
-        train_subset = joined_train.filter(lambda row, subset=subset: row["data_subset"] == subset)
-        test_subset = joined_test.filter(lambda row, subset=subset: row["data_subset"] == subset)
-        train_subset = train_subset.filter(lambda row: row["controversial"] is True)
-        test_subset = test_subset.filter(lambda row: row["controversial"] is True)
-        subset_dir = source_root / subset
-        subset_dir.mkdir(parents=True, exist_ok=True)
-        print(user_types[subset], len(train_subset), len(test_subset))
-        train_subset.to_json(str(subset_dir / "train.jsonl"))
-        test_subset.to_json(str(subset_dir / "test.jsonl"))
-
-
-def build_survey_contexts(args: argparse.Namespace, source_root: Path) -> None:
-    with_embeddings = as_bool(args.with_embeddings)
-    for subset in subsets_for(args.other_subsets):
-        for split in ("train", "test"):
-            context_args = ContextArguments(
-                output_dir=f"data/{args.dataset_name}_survey_{args.survey_size}/",
-                data_path=str(source_root),
-                data_subset=subset,
-                data_split=split,
-                model_type=args.model_type,
-                with_embeddings=with_embeddings,
-                other_subsets=args.other_subsets,
-                survey_size=int(args.survey_size),
-                context_length=int(args.history_items),
-                num_duplicates=1,
-                fixed_context_length=True,
-            )
-            print(context_args)
-            dataset = load_input_dataset(context_args)
-            survey_path = source_root / subset / f"survey_{args.survey_size}.jsonl"
-            if split == "train":
-                survey_options = dataset.filter(lambda row: as_bool(row.get("survey_options")))
-                survey_ids = np.random.choice(range(len(survey_options)), int(args.survey_size), replace=False)
-                print(survey_ids)
-                survey_data = survey_options.filter(lambda example, idx: idx in survey_ids, with_indices=True)
-                survey_data.to_json(str(survey_path))
-            else:
-                from datasets import load_dataset
-
-                survey_data = load_dataset("json", data_files=str(survey_path), split="train")
-            generate_contexts(context_args, dataset, survey_data)
-
-
 def build_pengram_splits(args: argparse.Namespace, generated_data_dir: Path, source_root: Path, out_dir: Path) -> None:
     subsets = infer_generated_subsets(generated_data_dir, args.other_subsets)
     train_rows: List[Dict[str, Any]] = []
@@ -480,21 +397,15 @@ def build_pengram_splits(args: argparse.Namespace, generated_data_dir: Path, sou
 
 def main() -> None:
     args = parse_args()
+    if args.skip_splits:
+        print("[skip] split generation disabled by --skip_splits")
+        return
+
     source_root = default_source_root(args)
     generated_data_dir = default_generated_data_dir(args)
     out_dir = default_out_dir(args)
-
     random.seed(int(args.seed))
-    np.random.seed(int(args.seed))
-    torch.manual_seed(int(args.seed))
-    torch.cuda.manual_seed(int(args.seed))
-
-    if not args.skip_augment:
-        build_augmented_dataset(args, source_root)
-    if not args.skip_contexts:
-        build_survey_contexts(args, source_root)
-    if not args.skip_splits:
-        build_pengram_splits(args, generated_data_dir, source_root, out_dir)
+    build_pengram_splits(args, generated_data_dir, source_root, out_dir)
 
 
 if __name__ == "__main__":

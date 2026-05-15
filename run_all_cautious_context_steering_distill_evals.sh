@@ -28,7 +28,6 @@ if [[ "${USE_WANDB:-1}" == "1" ]]; then
   )
 fi
 
-uf_model_type="${UF_MODEL_TYPE:-Qwen/Qwen3-0.6B}"
 uf_other_subsets="${UF_OTHER_SUBSETS:-single}"
 uf_dataset_name="${UF_DATASET_NAME:-P_4}"
 uf_survey_size="${UF_SURVEY_SIZE:-16}"
@@ -121,7 +120,6 @@ env -u SUPPORT_JSONL -u QUERY_JSONL -u TEST_JSONL \
   "${model_name}" \
   "${version_name}" \
   "${device}" \
-  "${uf_model_type}" \
   "${uf_other_subsets}" \
   "${uf_dataset_name}" \
   "${uf_survey_size}"
