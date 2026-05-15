@@ -345,7 +345,7 @@ def parse_args() -> argparse.Namespace:
         default="refs/convert/parquet",
         help="Use the parquet conversion branch because newer datasets versions reject dataset scripts.",
     )
-    ap.add_argument("--out_dir", type=Path, default=Path("data/tldr_top40_pengram_splits"))
+    ap.add_argument("--out_dir", type=Path, default=Path("data/tldr_top40_cautious_cos_splits"))
     ap.add_argument("--train_split", type=str, default="train")
     ap.add_argument("--eval_split", type=str, default="validation")
     ap.add_argument("--top_workers", type=int, default=40)

@@ -7,10 +7,10 @@ model_name="${1:-Qwen3-0.6B}"
 version_name="${2:-cautious_context_steering}"
 device="${3:-0}"
 
-train_jsonl="${TRAIN_JSONL:-data/prism_pengram_splits/seen_train.jsonl}"
-valid_jsonl="${VALID_JSONL:-data/prism_pengram_splits/seen_valid.jsonl}"
-prism_support_jsonl="${SUPPORT_JSONL:-data/prism_pengram_splits/calib_unseen.jsonl}"
-prism_query_jsonl="${QUERY_JSONL:-data/prism_pengram_splits/test_unseen.jsonl}"
+train_jsonl="${TRAIN_JSONL:-data/prism_cautious_cos_splits/seen_train.jsonl}"
+valid_jsonl="${VALID_JSONL:-data/prism_cautious_cos_splits/seen_valid.jsonl}"
+prism_support_jsonl="${SUPPORT_JSONL:-data/prism_cautious_cos_splits/calib_unseen.jsonl}"
+prism_query_jsonl="${QUERY_JSONL:-data/prism_cautious_cos_splits/test_unseen.jsonl}"
 
 run_dir="${RUN_DIR:-runs/prism_cautious_context_steering_distill_${model_name}_${version_name}}"
 prism_eval_dir="${PRISM_EVAL_DIR:-runs/all_eval_prism_${model_name}_${version_name}_steer_distill}"
@@ -108,8 +108,8 @@ CUDA_VISIBLE_DEVICES=${device} python "${script_dir}/eval_cautious_context_steer
   --cos_history_mode chosen_only \
   --cos_history_include_prompt \
   --cos_lambda -0.1 \
-  --steering_history_mode chosen_only \
-  --steering_history_include_prompt \
+  --cautious_cos_history_mode chosen_only \
+  --cautious_cos_history_include_prompt \
   --systems steer_distill
 
 echo "[all-eval] UltraFeedback steer_distill"

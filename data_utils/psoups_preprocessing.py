@@ -281,7 +281,7 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Build PSOUPS JSONL splits for cautious context-steering distillation")
     ap.add_argument("--dataset_name", type=str, default="RiverDong/psoups")
     ap.add_argument("--config_name", type=str, default="default", choices=["default", "ood", "new-user"])
-    ap.add_argument("--out_dir", type=Path, default=Path("data/psoups_pengram_splits"))
+    ap.add_argument("--out_dir", type=Path, default=Path("data/psoups_cautious_cos_splits"))
     ap.add_argument("--train_split", type=str, default="train")
     ap.add_argument("--test_split", type=str, default="test")
     ap.add_argument("--seen_valid_frac", type=float, default=0.10)

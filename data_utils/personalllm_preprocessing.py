@@ -251,7 +251,7 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Build PersonalLLM support/query JSONL splits")
     ap.add_argument("--dataset_name", type=str, default="namkoong-lab/PersonalLLM_InteractionDatabase")
     ap.add_argument("--split", type=str, default="train")
-    ap.add_argument("--out_dir", type=Path, default=Path("data/personalllm_pengram_splits"))
+    ap.add_argument("--out_dir", type=Path, default=Path("data/personalllm_cautious_cos_splits"))
     ap.add_argument("--n_interactions", type=int, default=50)
     ap.add_argument("--support_count", type=int, default=4)
     ap.add_argument("--history_pairs", type=int, default=4)

@@ -15,7 +15,7 @@ python data_utils/get_prism_dataset.py
 python data_utils/prism_preprocessing.py \
   --survey_jsonl data/prism_raw/survey.jsonl \
   --conversations_jsonl data/prism_raw/conversations.jsonl \
-  --out_dir data/prism_pengram_splits \
+  --out_dir data/prism_cautious_cos_splits \
   --only_english \
   --drop_flagged \
   --min_score_gap 5.0 \

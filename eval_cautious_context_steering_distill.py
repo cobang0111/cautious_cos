@@ -46,24 +46,24 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_TRAIN_SCRIPT = REPO_ROOT / "train_prism_cautious_context_steering_distill.py"
 DATASET_DEFAULTS = {
     "prism": (
-        "data/prism_pengram_splits/calib_unseen.jsonl",
-        "data/prism_pengram_splits/test_unseen.jsonl",
+        "data/prism_cautious_cos_splits/calib_unseen.jsonl",
+        "data/prism_cautious_cos_splits/test_unseen.jsonl",
     ),
     "ultrafeedback": (
         "data/ultrafeedback_single_P_4_history/calib_unseen.jsonl",
         "data/ultrafeedback_single_P_4_history/test_unseen.jsonl",
     ),
     "psoups": (
-        "data/psoups_pengram_splits/calib_unseen.jsonl",
-        "data/psoups_pengram_splits/test_unseen.jsonl",
+        "data/psoups_cautious_cos_splits/calib_unseen.jsonl",
+        "data/psoups_cautious_cos_splits/test_unseen.jsonl",
     ),
     "tldr": (
-        "data/tldr_top40_pengram_splits/calib_unseen.jsonl",
-        "data/tldr_top40_pengram_splits/test_unseen.jsonl",
+        "data/tldr_top40_cautious_cos_splits/calib_unseen.jsonl",
+        "data/tldr_top40_cautious_cos_splits/test_unseen.jsonl",
     ),
     "personalllm": (
-        "data/personalllm_pengram_splits/calib_unseen.jsonl",
-        "data/personalllm_pengram_splits/test_unseen.jsonl",
+        "data/personalllm_cautious_cos_splits/calib_unseen.jsonl",
+        "data/personalllm_cautious_cos_splits/test_unseen.jsonl",
     ),
 }
 DATASET_ALIASES = {
@@ -119,10 +119,10 @@ def parse_args() -> argparse.Namespace:
         help="Use the same exemplar ICL prompt format for steering rows.",
     )
 
-    # History synthesis used by steering and CoS-history
-    ap.add_argument("--steering_history_include_prompt", action="store_true")
-    ap.add_argument("--steering_history_mode", type=str, default="chosen_only", choices=["chosen_only", "pairwise"])
-    ap.add_argument("--steering_history_max_chars", type=int, default=512)
+    # History synthesis used by cautious_cos and CoS-history
+    ap.add_argument("--cautious_cos_history_include_prompt", action="store_true")
+    ap.add_argument("--cautious_cos_history_mode", type=str, default="chosen_only", choices=["chosen_only", "pairwise"])
+    ap.add_argument("--cautious_cos_history_max_chars", type=int, default=512)
     ap.add_argument("--steering_skip_first_n", type=int, default=0)
 
     # CoS-history baseline
@@ -650,7 +650,7 @@ def build_rag_support_text(row: Dict[str, Any], match_field: str) -> str:
     return prompt
 
 
-def synthesize_steering_history_from_support(
+def synthesize_cautious_cos_history_from_support(
     support_rows: Sequence[Dict[str, Any]],
     mode: str,
     include_prompt: bool,
@@ -676,7 +676,7 @@ def synthesize_steering_history_from_support(
     return "\n".join(lines)
 
 
-def build_steering_history_pairs_from_support(
+def build_cautious_cos_history_pairs_from_support(
     support_rows: Sequence[Dict[str, Any]],
     max_items: int,
     max_chars: int,
@@ -789,17 +789,17 @@ def build_budget_rows(
             candidate_texts = [build_rag_support_text(r, cli.icl_rag_match_field) for r in retrieval_candidates]
             candidate_embs = retriever.encode(candidate_texts, batch_size=cli.icl_rag_batch_size)
 
-        steering_history = synthesize_steering_history_from_support(
+        cautious_cos_history = synthesize_cautious_cos_history_from_support(
             support_rows=selected_support,
-            mode=cli.steering_history_mode,
-            include_prompt=cli.steering_history_include_prompt,
-            max_chars=cli.steering_history_max_chars,
+            mode=cli.cautious_cos_history_mode,
+            include_prompt=cli.cautious_cos_history_include_prompt,
+            max_chars=cli.cautious_cos_history_max_chars,
         )
-        cos_history = synthesize_steering_history_from_support(
+        cos_history = synthesize_cautious_cos_history_from_support(
             support_rows=selected_support,
-            mode=(cli.cos_history_mode or cli.steering_history_mode),
-            include_prompt=(cli.cos_history_include_prompt or cli.steering_history_include_prompt),
-            max_chars=(cli.cos_history_max_chars if cli.cos_history_max_chars > 0 else cli.steering_history_max_chars),
+            mode=(cli.cos_history_mode or cli.cautious_cos_history_mode),
+            include_prompt=(cli.cos_history_include_prompt or cli.cautious_cos_history_include_prompt),
+            max_chars=(cli.cos_history_max_chars if cli.cos_history_max_chars > 0 else cli.cautious_cos_history_max_chars),
         )
 
         included_users += 1
@@ -859,10 +859,10 @@ def build_budget_rows(
                 icl_rag_row["meta"] = rag_meta
                 icl_rag_eval_rows.append(icl_rag_row)
 
-            steering_history_pairs = build_steering_history_pairs_from_support(
+            cautious_cos_history_pairs = build_cautious_cos_history_pairs_from_support(
                 support_rows=selected_support,
                 max_items=int(getattr(train_args, "max_history_pairs", len(selected_support))),
-                max_chars=cli.steering_history_max_chars,
+                max_chars=cli.cautious_cos_history_max_chars,
             )
 
             steering_row = dict(row)
@@ -878,8 +878,8 @@ def build_budget_rows(
                 steering_row["prompt_text"] = icl_prompt_row["prompt_text"]
                 steering_row.pop("messages", None)
                 steering_row.pop("prompt", None)
-            steering_row["user_history_text"] = steering_history
-            steering_row["user_history_pairs"] = steering_history_pairs
+            steering_row["user_history_text"] = cautious_cos_history
+            steering_row["user_history_pairs"] = cautious_cos_history_pairs
             steering_meta = dict(row.get("meta", {}) or {})
             steering_meta.update(meta)
             if cli.steering_use_icl_prompt:

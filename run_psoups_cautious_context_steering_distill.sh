@@ -9,7 +9,7 @@ version_name="${2:-cautious_context_steering}"
 device="${3:-0}"
 config_name="${4:-default}"
 
-out_dir="${PSOUPS_OUT_DIR:-data/psoups_pengram_splits}"
+out_dir="${PSOUPS_OUT_DIR:-data/psoups_cautious_cos_splits}"
 support_jsonl="${SUPPORT_JSONL:-${out_dir}/calib_unseen.jsonl}"
 query_jsonl="${QUERY_JSONL:-${out_dir}/test_unseen.jsonl}"
 
@@ -47,6 +47,6 @@ CUDA_VISIBLE_DEVICES=${device} "${python_bin}" "${script_dir}/eval_cautious_cont
   --cos_history_mode chosen_only \
   --cos_history_include_prompt \
   --cos_lambda -0.1 \
-  --steering_history_mode chosen_only \
-  --steering_history_include_prompt \
+  --cautious_cos_history_mode chosen_only \
+  --cautious_cos_history_include_prompt \
   --systems "${systems[@]}"
