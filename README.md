@@ -142,9 +142,9 @@ streamlit run streamlit_compare_evals.py
 대시보드는 기본적으로 `runs/` 아래의 모든 `summary.json`과 `predictions_budget*.jsonl` 파일을 찾아서 사용합니다. 지원 기능은 다음과 같습니다.
 
 - PRISM, UltraFeedback P_4, PSOUPS, TLDR, PersonalLLM 전체 dataset 결과 비교
-- `base`, `icl`, `cos`, `cautious-cos` system별 metric table
+- model/version/run 필터와 `base`, `icl`, `cos`, `cautious-cos` system별 metric table
 - `rouge1_f1`, `rougeL_f1`, `bertscore_f1`, `gen_time_sec`, `policy_preference_acc` 등 지표별 grouped bar chart
-- cautious-cos의 `rouge1_f1`이 selected baseline보다 높은 예시를 우선 보여주고, 이후 cautious-cos `rouge1_f1` 순서로 이어지는 generation examples
+- cautious-cos의 `rouge1_f1`과 `bertscore_f1`이 selected baseline보다 높은 예시를 우선 보여주고, 이후 `bertscore_f1` 조건, 마지막으로 cautious-cos `rouge1_f1` 순서로 이어지는 generation examples
 - 각 example에서 preference history, chosen/rejected reference, baseline별 generation을 나란히 확인
 
 history 비교를 보려면 현재 코드로 evaluation을 다시 실행해야 합니다. 새 evaluation output에는 `user_history_text`와 `user_history_pairs`가 prediction JSONL에 함께 저장됩니다.

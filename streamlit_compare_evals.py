@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -37,8 +38,9 @@ GENERATION_METRICS = [
 
 POLICY_METRICS = [
     "policy_preference_acc",
-    "policy_coverage",
 ]
+
+MODEL_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?B\b", re.IGNORECASE)
 
 
 def display_system(system: str) -> str:
@@ -85,6 +87,73 @@ def infer_dataset(summary: Dict[str, Any], run_dir: Path) -> str:
     return run_dir.name
 
 
+def strip_suffix(value: str, suffix: str) -> str:
+    return value[: -len(suffix)] if value.endswith(suffix) else value
+
+
+def find_model_token(parts: Sequence[str]) -> Optional[int]:
+    for idx, part in enumerate(parts):
+        if MODEL_TOKEN_RE.search(part):
+            return idx
+    return None
+
+
+def parse_model_version_from_name(name: str, dataset: str) -> Tuple[str, str, str]:
+    stem = strip_suffix(name, "_steer_distill")
+    stem = strip_suffix(stem, "_cautious_cos")
+
+    prefixes = [
+        f"all_eval_{dataset}_",
+        "all_eval_",
+        "prism_cautious_context_steering_distill_",
+    ]
+    for prefix in prefixes:
+        if stem.startswith(prefix):
+            stem = stem[len(prefix) :]
+            break
+
+    parts = [part for part in stem.split("_") if part]
+    if parts and parts[0] == dataset:
+        parts = parts[1:]
+
+    model_idx = find_model_token(parts)
+    if model_idx is None:
+        return name, "", ""
+
+    eval_config = "_".join(parts[:model_idx])
+    model_name = parts[model_idx]
+    version_name = "_".join(parts[model_idx + 1 :])
+    return model_name, version_name, eval_config
+
+
+def infer_run_metadata(summary: Dict[str, Any], run_dir: Path, dataset: str) -> Dict[str, str]:
+    model_name, version_name, eval_config = parse_model_version_from_name(run_dir.name, dataset)
+
+    if not version_name:
+        ckpt = normalize_text(summary.get("steering_checkpoint", ""))
+        if ckpt:
+            ckpt_path = Path(ckpt)
+            ckpt_dir = ckpt_path.parent if ckpt_path.suffix else ckpt_path
+            if ckpt_dir.name == "last":
+                ckpt_dir = ckpt_dir.parent
+            ckpt_model, ckpt_version, _ = parse_model_version_from_name(ckpt_dir.name, dataset)
+            if ckpt_version:
+                model_name, version_name = ckpt_model, ckpt_version
+
+    run_label = model_name
+    if version_name:
+        run_label = f"{model_name} / {version_name}"
+    if eval_config:
+        run_label = f"{run_label} ({eval_config})"
+
+    return {
+        "model_name": model_name or "unknown",
+        "version_name": version_name or "unknown",
+        "eval_config": eval_config,
+        "run_label": run_label,
+    }
+
+
 def discover_summaries(runs_dir: Path) -> Tuple[pd.DataFrame, Dict[str, Dict[str, Any]]]:
     rows: List[Dict[str, Any]] = []
     summaries: Dict[str, Dict[str, Any]] = {}
@@ -102,6 +171,7 @@ def discover_summaries(runs_dir: Path) -> Tuple[pd.DataFrame, Dict[str, Dict[str
         run_id = str(run_dir)
         summaries[run_id] = summary
         dataset = infer_dataset(summary, run_dir)
+        run_meta = infer_run_metadata(summary, run_dir, dataset)
         budgets = summary.get("budgets", {}) or {}
         for budget, budget_info in budgets.items():
             systems = (budget_info or {}).get("systems", {}) or {}
@@ -113,6 +183,7 @@ def discover_summaries(runs_dir: Path) -> Tuple[pd.DataFrame, Dict[str, Dict[str
                     "system_label": display_system(system),
                     "run_dir": run_id,
                     "run_name": run_dir.name,
+                    **run_meta,
                 }
                 for key, value in (metrics or {}).items():
                     if isinstance(value, (int, float)):
@@ -198,42 +269,73 @@ def is_cautious_system(system: str) -> bool:
     return system in CAUTIOUS_SYSTEMS or display_system(system) == "cautious-cos"
 
 
+def best_cautious_score(system_rows: Dict[str, Dict[str, Any]], metric: str) -> Optional[float]:
+    return max(
+        (
+            score
+            for system, row in system_rows.items()
+            if is_cautious_system(system) and (score := to_float(row.get(metric))) is not None
+        ),
+        default=None,
+    )
+
+
+def baseline_scores_for_metric(
+    system_rows: Dict[str, Dict[str, Any]],
+    baselines: Sequence[str],
+    metric: str,
+) -> Optional[List[float]]:
+    scores: List[float] = []
+    for baseline in baselines:
+        row = system_rows.get(baseline)
+        score = to_float(row.get(metric)) if row is not None else None
+        if score is None:
+            return None
+        scores.append(score)
+    return scores
+
+
+def beats_all_baselines(
+    cautious_score: Optional[float],
+    baseline_scores: Optional[Sequence[float]],
+) -> bool:
+    return cautious_score is not None and baseline_scores is not None and bool(baseline_scores) and cautious_score > max(baseline_scores)
+
+
 def select_ranked_example_keys(
     merged: Dict[str, Dict[str, Dict[str, Any]]],
     systems: Sequence[str],
     max_examples: int,
 ) -> List[str]:
     selected_baselines = [system for system in systems if not is_cautious_system(system)]
-    ranked: List[Tuple[int, float, str]] = []
+    ranked: List[Tuple[int, float, float, str]] = []
 
     for key, system_rows in merged.items():
-        cautious_rows = [(system, row) for system, row in system_rows.items() if is_cautious_system(system)]
-        if not cautious_rows:
+        cautious_rouge = best_cautious_score(system_rows, "rouge1_f1")
+        if cautious_rouge is None:
             continue
 
-        cautious_score = max(
-            (score for _, row in cautious_rows if (score := to_float(row.get("rouge1_f1"))) is not None),
-            default=None,
+        cautious_bert = best_cautious_score(system_rows, "bertscore_f1")
+        rouge_wins = beats_all_baselines(
+            cautious_rouge,
+            baseline_scores_for_metric(system_rows, selected_baselines, "rouge1_f1"),
         )
-        if cautious_score is None:
-            continue
+        bert_wins = beats_all_baselines(
+            cautious_bert,
+            baseline_scores_for_metric(system_rows, selected_baselines, "bertscore_f1"),
+        )
 
-        baseline_scores: List[float] = []
-        baseline_scores_complete = bool(selected_baselines)
-        for baseline in selected_baselines:
-            row = system_rows.get(baseline)
-            score = to_float(row.get("rouge1_f1")) if row is not None else None
-            if score is None:
-                baseline_scores_complete = False
-                break
-            baseline_scores.append(score)
+        if rouge_wins and bert_wins:
+            tier = 0
+        elif bert_wins:
+            tier = 1
+        else:
+            tier = 2
 
-        cautious_wins = baseline_scores_complete and cautious_score > max(baseline_scores)
-        win_bucket = 0 if cautious_wins else 1
-        ranked.append((win_bucket, cautious_score, key))
+        ranked.append((tier, cautious_rouge, cautious_bert if cautious_bert is not None else -1.0, key))
 
-    ranked.sort(key=lambda item: (item[0], -item[1], item[2]))
-    return [key for _, _, key in ranked[:max_examples]]
+    ranked.sort(key=lambda item: (item[0], -item[1], -item[2], item[3]))
+    return [key for _, _, _, key in ranked[:max_examples]]
 
 
 def short_value(value: Any, max_len: int = 24) -> str:
@@ -277,7 +379,7 @@ def metric_table(system_rows: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
 
 def render_metric_bars(df: pd.DataFrame, metrics: Sequence[str]) -> None:
     plot_df = df.copy()
-    plot_df["dataset_budget"] = plot_df["dataset"] + " / k=" + plot_df["budget"].astype(str)
+    plot_df["run_budget_label"] = plot_df["run_label"] + " / k=" + plot_df["budget"].astype(str)
     for metric in metrics:
         if metric not in plot_df.columns:
             continue
@@ -286,26 +388,35 @@ def render_metric_bars(df: pd.DataFrame, metrics: Sequence[str]) -> None:
             continue
         fig = px.bar(
             metric_df,
-            x="dataset_budget",
+            x="run_budget_label",
             y=metric,
             color="system_label",
             barmode="group",
-            hover_data=["run_name", "system"],
+            facet_col="dataset",
+            facet_col_wrap=2,
+            hover_data=["run_name", "model_name", "version_name", "budget", "system"],
             title=metric,
         )
-        fig.update_layout(xaxis_title="dataset / support budget", yaxis_title=metric, legend_title="system")
+        fig.for_each_annotation(lambda annotation: annotation.update(text=annotation.text.split("=")[-1]))
+        fig.update_layout(xaxis_title="model/version / support budget", yaxis_title=metric, legend_title="system")
+        fig.update_xaxes(tickangle=25)
         st.plotly_chart(fig, use_container_width=True)
 
 
 def render_examples(df: pd.DataFrame) -> None:
     st.subheader("Generation examples")
-    st.caption("Examples prioritize cases where cautious-cos has the highest rouge1_f1, then continue by cautious-cos rouge1_f1.")
+    st.caption("Examples prioritize cautious-cos wins on both rouge1_f1 and bertscore_f1, then bertscore_f1 wins, then cautious-cos rouge1_f1.")
 
     datasets = sorted(df["dataset"].dropna().unique().tolist())
     dataset = st.selectbox("Example dataset", datasets)
     dataset_df = df[df["dataset"] == dataset]
     run_options = sorted(dataset_df["run_dir"].unique().tolist())
-    run_dir_str = st.selectbox("Example result directory", run_options, format_func=lambda x: Path(x).name)
+    run_labels = dataset_df.drop_duplicates("run_dir").set_index("run_dir")["run_label"].to_dict()
+    run_dir_str = st.selectbox(
+        "Example result directory",
+        run_options,
+        format_func=lambda x: f"{run_labels.get(x, Path(x).name)} | {Path(x).name}",
+    )
     budget = st.selectbox("Example support budget", sorted(dataset_df[dataset_df["run_dir"] == run_dir_str]["budget"].unique().tolist()))
 
     available_systems = sorted(dataset_df[(dataset_df["run_dir"] == run_dir_str) & (dataset_df["budget"] == budget)]["system"].unique().tolist())
@@ -381,9 +492,15 @@ def main() -> None:
 
     with st.sidebar:
         datasets = sorted(df["dataset"].unique().tolist())
+        models = sorted(df["model_name"].unique().tolist())
+        versions = sorted(df["version_name"].unique().tolist())
+        run_labels = sorted(df["run_label"].unique().tolist())
         systems = sorted(df["system"].unique().tolist())
         budgets = sorted(df["budget"].unique().tolist())
         selected_datasets = st.multiselect("Datasets", datasets, default=datasets)
+        selected_models = st.multiselect("Models", models, default=models)
+        selected_versions = st.multiselect("Versions", versions, default=versions)
+        selected_run_labels = st.multiselect("Runs / versions", run_labels, default=run_labels)
         selected_systems = st.multiselect(
             "Systems",
             systems,
@@ -394,6 +511,9 @@ def main() -> None:
 
     filtered = df[
         df["dataset"].isin(selected_datasets)
+        & df["model_name"].isin(selected_models)
+        & df["version_name"].isin(selected_versions)
+        & df["run_label"].isin(selected_run_labels)
         & df["system"].isin(selected_systems)
         & df["budget"].isin(selected_budgets)
     ].copy()
@@ -410,9 +530,9 @@ def main() -> None:
     render_metric_bars(filtered, selected_metrics)
 
     st.subheader("Metric table")
-    table_cols = ["dataset", "budget", "system_label", "run_name"] + selected_metrics
+    table_cols = ["dataset", "budget", "model_name", "version_name", "system_label", "run_name"] + selected_metrics
     st.dataframe(
-        filtered[table_cols].sort_values(["dataset", "budget", "system_label", "run_name"]),
+        filtered[table_cols].sort_values(["dataset", "model_name", "version_name", "budget", "system_label", "run_name"]),
         use_container_width=True,
         hide_index=True,
     )
