@@ -379,7 +379,7 @@ def metric_table(system_rows: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
 
 def render_metric_bars(df: pd.DataFrame, metrics: Sequence[str]) -> None:
     plot_df = df.copy()
-    plot_df["run_budget_label"] = plot_df["run_label"] + " / k=" + plot_df["budget"].astype(str)
+    plot_df["dataset_budget"] = plot_df["dataset"] + " / k=" + plot_df["budget"].astype(str)
     for metric in metrics:
         if metric not in plot_df.columns:
             continue
@@ -388,18 +388,14 @@ def render_metric_bars(df: pd.DataFrame, metrics: Sequence[str]) -> None:
             continue
         fig = px.bar(
             metric_df,
-            x="run_budget_label",
+            x="dataset_budget",
             y=metric,
             color="system_label",
             barmode="group",
-            facet_col="dataset",
-            facet_col_wrap=2,
-            hover_data=["run_name", "model_name", "version_name", "budget", "system"],
+            hover_data=["run_name", "model_name", "version_name", "system"],
             title=metric,
         )
-        fig.for_each_annotation(lambda annotation: annotation.update(text=annotation.text.split("=")[-1]))
-        fig.update_layout(xaxis_title="model/version / support budget", yaxis_title=metric, legend_title="system")
-        fig.update_xaxes(tickangle=25)
+        fig.update_layout(xaxis_title="dataset / support budget", yaxis_title=metric, legend_title="system")
         st.plotly_chart(fig, use_container_width=True)
 
 
@@ -491,16 +487,27 @@ def main() -> None:
         return
 
     with st.sidebar:
-        datasets = sorted(df["dataset"].unique().tolist())
         models = sorted(df["model_name"].unique().tolist())
-        versions = sorted(df["version_name"].unique().tolist())
-        run_labels = sorted(df["run_label"].unique().tolist())
-        systems = sorted(df["system"].unique().tolist())
-        budgets = sorted(df["budget"].unique().tolist())
+        selected_model = st.selectbox("Model", models)
+
+        model_df = df[df["model_name"] == selected_model]
+        versions = sorted(model_df["version_name"].unique().tolist())
+        selected_version = st.selectbox("Version", versions)
+
+        version_df = model_df[model_df["version_name"] == selected_version]
+        run_options = sorted(version_df["run_dir"].unique().tolist())
+        run_labels = version_df.drop_duplicates("run_dir").set_index("run_dir")["run_label"].to_dict()
+        selected_run_dir = st.selectbox(
+            "Run / eval config",
+            run_options,
+            format_func=lambda x: f"{run_labels.get(x, Path(x).name)} | {Path(x).name}",
+        )
+
+        run_df = version_df[version_df["run_dir"] == selected_run_dir]
+        datasets = sorted(run_df["dataset"].unique().tolist())
+        systems = sorted(run_df["system"].unique().tolist())
+        budgets = sorted(run_df["budget"].unique().tolist())
         selected_datasets = st.multiselect("Datasets", datasets, default=datasets)
-        selected_models = st.multiselect("Models", models, default=models)
-        selected_versions = st.multiselect("Versions", versions, default=versions)
-        selected_run_labels = st.multiselect("Runs / versions", run_labels, default=run_labels)
         selected_systems = st.multiselect(
             "Systems",
             systems,
@@ -509,13 +516,10 @@ def main() -> None:
         )
         selected_budgets = st.multiselect("Support budgets", budgets, default=budgets)
 
-    filtered = df[
-        df["dataset"].isin(selected_datasets)
-        & df["model_name"].isin(selected_models)
-        & df["version_name"].isin(selected_versions)
-        & df["run_label"].isin(selected_run_labels)
-        & df["system"].isin(selected_systems)
-        & df["budget"].isin(selected_budgets)
+    filtered = run_df[
+        run_df["dataset"].isin(selected_datasets)
+        & run_df["system"].isin(selected_systems)
+        & run_df["budget"].isin(selected_budgets)
     ].copy()
 
     if filtered.empty:
