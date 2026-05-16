@@ -23,27 +23,21 @@ SYSTEM_LABELS = {
     "lora_sft": "lora-sft",
 }
 
+CAUTIOUS_SYSTEMS = {"steer_distill", "cautious-cos", "cautious_cos"}
+
 GENERATION_METRICS = [
-    "prefsim_acc",
-    "prefsim_margin",
-    "macro_user_prefsim_acc",
-    "macro_user_prefsim_margin",
     "bertscore_f1",
     "rouge1_f1",
     "rougeL_f1",
+    "gen_time_sec",
     "mean_gen_len",
     "empty_rate",
     "drift_rate",
-    "first_token_language_stability",
 ]
 
 POLICY_METRICS = [
     "policy_preference_acc",
-    "policy_token_acc",
-    "policy_first_token_acc",
     "policy_coverage",
-    "policy_support_size_mean",
-    "policy_entropy_mean",
 ]
 
 
@@ -123,6 +117,8 @@ def discover_summaries(runs_dir: Path) -> Tuple[pd.DataFrame, Dict[str, Dict[str
                 for key, value in (metrics or {}).items():
                     if isinstance(value, (int, float)):
                         row[key] = float(value)
+                if "gen_time_sec" not in row and "gen_wall_time_mean_per_sample_sec" in row:
+                    row["gen_time_sec"] = row["gen_wall_time_mean_per_sample_sec"]
                 rows.append(row)
 
     return pd.DataFrame(rows), summaries
@@ -133,12 +129,12 @@ def prediction_path(run_dir: Path, budget: str, system: str) -> Path:
 
 
 def sample_key(row: Dict[str, Any]) -> str:
-    conversation_id = normalize_text(row.get("conversation_id", ""))
-    if conversation_id:
-        return conversation_id
     user_id = normalize_text(row.get("user_id", "unknown"))
+    conversation_id = normalize_text(row.get("conversation_id", ""))
     turn = normalize_text(row.get("turn", ""))
     chosen_hash = hashlib.sha1(normalize_text(row.get("chosen", "")).encode("utf-8")).hexdigest()[:12]
+    if conversation_id:
+        return f"{user_id}|{conversation_id}|{turn}|{chosen_hash}"
     return f"{user_id}|{turn}|{chosen_hash}"
 
 
@@ -189,26 +185,79 @@ def pick_history(system_rows: Dict[str, Dict[str, Any]]) -> str:
     return ""
 
 
-def distinct_user_keys(merged: Dict[str, Dict[str, Dict[str, Any]]], max_examples: int) -> List[str]:
-    selected: List[str] = []
-    seen_users = set()
-    for key, system_rows in sorted(merged.items()):
-        common = pick_common_row(system_rows)
-        user_id = str(common.get("user_id", "unknown"))
-        if user_id in seen_users:
-            continue
-        seen_users.add(user_id)
-        selected.append(key)
-        if len(selected) >= max_examples:
-            break
+def to_float(value: Any) -> Optional[float]:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
-    if len(selected) < max_examples:
-        for key in sorted(merged):
-            if key not in selected:
-                selected.append(key)
-            if len(selected) >= max_examples:
+
+def is_cautious_system(system: str) -> bool:
+    return system in CAUTIOUS_SYSTEMS or display_system(system) == "cautious-cos"
+
+
+def select_ranked_example_keys(
+    merged: Dict[str, Dict[str, Dict[str, Any]]],
+    systems: Sequence[str],
+    max_examples: int,
+) -> List[str]:
+    selected_baselines = [system for system in systems if not is_cautious_system(system)]
+    ranked: List[Tuple[int, float, str]] = []
+
+    for key, system_rows in merged.items():
+        cautious_rows = [(system, row) for system, row in system_rows.items() if is_cautious_system(system)]
+        if not cautious_rows:
+            continue
+
+        cautious_score = max(
+            (score for _, row in cautious_rows if (score := to_float(row.get("rouge1_f1"))) is not None),
+            default=None,
+        )
+        if cautious_score is None:
+            continue
+
+        baseline_scores: List[float] = []
+        baseline_scores_complete = bool(selected_baselines)
+        for baseline in selected_baselines:
+            row = system_rows.get(baseline)
+            score = to_float(row.get("rouge1_f1")) if row is not None else None
+            if score is None:
+                baseline_scores_complete = False
                 break
-    return selected
+            baseline_scores.append(score)
+
+        cautious_wins = baseline_scores_complete and cautious_score > max(baseline_scores)
+        win_bucket = 0 if cautious_wins else 1
+        ranked.append((win_bucket, cautious_score, key))
+
+    ranked.sort(key=lambda item: (item[0], -item[1], item[2]))
+    return [key for _, _, key in ranked[:max_examples]]
+
+
+def short_value(value: Any, max_len: int = 24) -> str:
+    text = normalize_text(value)
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1] + "..."
+
+
+def example_title(idx: int, key: str, row: Dict[str, Any], dataset: str) -> str:
+    user_id = short_value(row.get("user_id", "unknown"))
+    parts = [f"user={user_id}"]
+    conversation_id = short_value(row.get("conversation_id", ""))
+    turn = row.get("turn", "")
+
+    if dataset == "prism" and turn not in ("", None):
+        parts.append(f"turn={turn}")
+    elif conversation_id:
+        parts.append(f"conversation={conversation_id}")
+    else:
+        sample_hash = hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
+        parts.append(f"sample={sample_hash}")
+
+    return f"Example {idx}: " + ", ".join(parts)
 
 
 def metric_table(system_rows: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
@@ -217,11 +266,10 @@ def metric_table(system_rows: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
         rows.append(
             {
                 "system": display_system(system),
-                "prefsim_margin": row.get("prefsim_margin"),
-                "bertscore_f1": row.get("bertscore_f1"),
                 "rouge1_f1": row.get("rouge1_f1"),
                 "rougeL_f1": row.get("rougeL_f1"),
-                "gen_time_sec": row.get("gen_wall_time_sec"),
+                "bertscore_f1": row.get("bertscore_f1"),
+                "gen_time_sec": row.get("gen_time_sec", row.get("gen_wall_time_sec")),
             }
         )
     return pd.DataFrame(rows)
@@ -251,7 +299,7 @@ def render_metric_bars(df: pd.DataFrame, metrics: Sequence[str]) -> None:
 
 def render_examples(df: pd.DataFrame) -> None:
     st.subheader("Generation examples")
-    st.caption("Examples are selected to use different user_id values whenever possible.")
+    st.caption("Examples prioritize cases where cautious-cos has the highest rouge1_f1, then continue by cautious-cos rouge1_f1.")
 
     datasets = sorted(df["dataset"].dropna().unique().tolist())
     dataset = st.selectbox("Example dataset", datasets)
@@ -280,20 +328,15 @@ def render_examples(df: pd.DataFrame) -> None:
         st.warning("Missing prediction files for: " + ", ".join(missing))
 
     merged = merge_predictions(predictions)
-    keys = distinct_user_keys(merged, max_examples)
+    keys = select_ranked_example_keys(merged, systems, max_examples)
     if not keys:
-        st.info("No comparable examples found.")
+        st.info("No cautious-cos examples with rouge1_f1 were found for this selection.")
         return
 
     for idx, key in enumerate(keys, start=1):
         system_rows = merged[key]
         common = pick_common_row(system_rows)
-        user_id = common.get("user_id", "unknown")
-        turn = common.get("turn", "")
-        title = f"Example {idx}: user={user_id}"
-        if turn not in ("", None):
-            title += f", turn={turn}"
-        with st.expander(title, expanded=(idx == 1)):
+        with st.expander(example_title(idx, key, common, dataset), expanded=(idx == 1)):
             history = pick_history(system_rows)
             if history:
                 st.markdown("**Preference history**")
@@ -361,7 +404,7 @@ def main() -> None:
 
     st.subheader("Metric overview")
     metric_options = [m for m in GENERATION_METRICS + POLICY_METRICS if m in filtered.columns]
-    default_metrics = [m for m in ["prefsim_margin", "bertscore_f1", "rougeL_f1", "policy_preference_acc"] if m in metric_options]
+    default_metrics = [m for m in ["rouge1_f1", "rougeL_f1", "bertscore_f1", "gen_time_sec", "policy_preference_acc"] if m in metric_options]
     selected_metrics = st.multiselect("Metrics", metric_options, default=default_metrics or metric_options[:4])
 
     render_metric_bars(filtered, selected_metrics)

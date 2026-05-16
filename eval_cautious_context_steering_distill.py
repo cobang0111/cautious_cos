@@ -161,7 +161,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     # metric models
-    ap.add_argument("--prefsim_model", type=str, default="sentence-transformers/all-MiniLM-L6-v2")
+    ap.add_argument("--prefsim_model", type=str, default="", help=argparse.SUPPRESS)
     ap.add_argument("--bertscore_lang", type=str, default="en")
     ap.add_argument("--bertscore_model_type", type=str, default="")
     ap.add_argument("--bertscore_batch_size", type=int, default=16)
@@ -559,34 +559,6 @@ class DenseRetriever:
             show_progress_bar=False,
         )
         return emb.float().cpu()
-
-
-class PrefSimScorer:
-    def __init__(self, model_name: str, device: torch.device):
-        self.model = SentenceTransformer(model_name, device=str(device)) if SentenceTransformer is not None else None
-
-    @torch.no_grad()
-    def batch_similarity(
-        self,
-        cands: Sequence[str],
-        pos_refs: Sequence[str],
-        neg_refs: Sequence[str],
-        batch_size: int = 64,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.model is None:
-            cand_emb = _hashed_bow(cands)
-            pos_emb = _hashed_bow(pos_refs)
-            neg_emb = _hashed_bow(neg_refs)
-        else:
-            cand_emb = self.model.encode(list(cands), batch_size=batch_size, convert_to_tensor=True, normalize_embeddings=True, show_progress_bar=False)
-            pos_emb = self.model.encode(list(pos_refs), batch_size=batch_size, convert_to_tensor=True, normalize_embeddings=True, show_progress_bar=False)
-            neg_emb = self.model.encode(list(neg_refs), batch_size=batch_size, convert_to_tensor=True, normalize_embeddings=True, show_progress_bar=False)
-            cand_emb = cand_emb.float().cpu()
-            pos_emb = pos_emb.float().cpu()
-            neg_emb = neg_emb.float().cpu()
-        pos_sim = (cand_emb * pos_emb).sum(dim=-1)
-        neg_sim = (cand_emb * neg_emb).sum(dim=-1)
-        return pos_sim, neg_sim
 
 
 # -----------------------------------------------------------------------------
@@ -1652,6 +1624,7 @@ def generate_rows_for_system(
                 "generated": generated,
                 "chosen": row.get("chosen", ""),
                 "rejected": row.get("rejected", ""),
+                "gen_time_sec": float(gen_time_per_sample_sec),
                 "gen_wall_time_sec": float(gen_time_per_sample_sec),
             }
             preds.append(pred)
@@ -1660,6 +1633,7 @@ def generate_rows_for_system(
     n_preds = len(preds)
     diag_summary["gen_wall_time_total_sec"] = float(gen_wall_time_total_sec)
     diag_summary["gen_wall_time_mean_per_sample_sec"] = float(gen_wall_time_total_sec / max(1, n_preds))
+    diag_summary["gen_time_sec"] = float(gen_wall_time_total_sec / max(1, n_preds))
     return preds, diag_summary
 
 
@@ -1711,32 +1685,13 @@ def compute_base_side_policy_stats(
     if labels.numel() == 0:
         return {
             "seq_lp": torch.zeros(batch_size, device=input_ids.device),
-            "token_correct": 0,
-            "total_tokens": 0,
-            "first_token_correct": 0,
-            "first_token_total": 0,
         }
 
     logits = outputs.logits[ex_idx, time_idx, :].float()
-    token_pred = logits.argmax(dim=-1)
     token_lp = F.log_softmax(logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
-
-    f_ex, f_time = compute_first_target_positions(target_ids)
-    if f_ex.numel() > 0:
-        first_labels = target_ids[f_ex, f_time]
-        first_logits = outputs.logits[f_ex, f_time, :].float()
-        first_token_correct = int((first_logits.argmax(dim=-1) == first_labels).sum().item())
-        first_token_total = int(first_labels.numel())
-    else:
-        first_token_correct = 0
-        first_token_total = 0
 
     return {
         "seq_lp": normalize_seq_logprobs(token_lp, ex_idx, batch_size),
-        "token_correct": int((token_pred == labels).sum().item()),
-        "total_tokens": int(labels.numel()),
-        "first_token_correct": first_token_correct,
-        "first_token_total": first_token_total,
     }
 
 
@@ -1760,10 +1715,6 @@ def compute_cos_side_policy_stats(
     if b_labels.numel() == 0:
         return {
             "seq_lp": torch.zeros(batch_size, device=base_input_ids.device),
-            "token_correct": 0,
-            "total_tokens": 0,
-            "first_token_correct": 0,
-            "first_token_total": 0,
         }
 
     if b_labels.numel() != c_labels.numel() or not torch.equal(b_labels, c_labels):
@@ -1772,28 +1723,10 @@ def compute_cos_side_policy_stats(
     base_logits = base_out.logits[b_ex, b_time, :].float()
     ctx_logits = ctx_out.logits[c_ex, c_time, :].float()
     steered_logits = ctx_logits + float(cos_lambda) * (ctx_logits - base_logits)
-    token_pred = steered_logits.argmax(dim=-1)
     token_lp = F.log_softmax(steered_logits, dim=-1).gather(-1, b_labels.unsqueeze(-1)).squeeze(-1)
-
-    f_b_ex, f_b_time = compute_first_target_positions(base_target_ids)
-    f_c_ex, f_c_time = compute_first_target_positions(ctx_target_ids)
-    if f_b_ex.numel() > 0:
-        first_labels = base_target_ids[f_b_ex, f_b_time]
-        first_base = base_out.logits[f_b_ex, f_b_time, :].float()
-        first_ctx = ctx_out.logits[f_c_ex, f_c_time, :].float()
-        first_steered = first_ctx + float(cos_lambda) * (first_ctx - first_base)
-        first_token_correct = int((first_steered.argmax(dim=-1) == first_labels).sum().item())
-        first_token_total = int(first_labels.numel())
-    else:
-        first_token_correct = 0
-        first_token_total = 0
 
     return {
         "seq_lp": normalize_seq_logprobs(token_lp, b_ex, batch_size),
-        "token_correct": int((token_pred == b_labels).sum().item()),
-        "total_tokens": int(b_labels.numel()),
-        "first_token_correct": first_token_correct,
-        "first_token_total": first_token_total,
     }
 
 
@@ -1848,13 +1781,10 @@ def score_steering_side_full_policy(
     if labels.numel() == 0:
         return {
             "seq_lp": torch.zeros(batch_size, device=input_ids.device),
-            "token_correct": 0,
             "total_tokens": 0,
             "covered_tokens": 0,
             "support_k_sum": 0.0,
             "entropy_sum": 0.0,
-            "first_token_correct": 0,
-            "first_token_total": 0,
         }
 
     selected_hidden = hidden[ex_idx, time_idx, :]
@@ -1867,7 +1797,7 @@ def score_steering_side_full_policy(
     )
     info = steering_model.compute_support_reranking(**call_kwargs)
 
-    if hasattr(steering_model, "_exact_logprob_terms") and hasattr(steering_model, "_full_vocab_pred_tokens"):
+    if hasattr(steering_model, "_exact_logprob_terms"):
         exact = steering_model._exact_logprob_terms(
             base_logp=info["base_logp"],
             support_idx=info["support_idx"],
@@ -1878,60 +1808,19 @@ def score_steering_side_full_policy(
         )
         token_lp = exact["steered_label_lp"]
         covered = exact["has_label"]
-        pred = steering_model._full_vocab_pred_tokens(
-            support_idx=info["support_idx"],
-            support_mask=info["support_mask"],
-            steered_support_logits=info["steered_support_logits"],
-            top_ext_idx=info["top_ext_idx"],
-            top_ext_logits=info["top_ext_logits"],
-        )
     else:
         steered_logits = info["base_logits"].clone()
         steered_logits.scatter_add_(dim=-1, index=info["support_idx"], src=info["delta_support"].to(steered_logits.dtype))
-        pred = steered_logits.argmax(dim=-1)
         token_lp = F.log_softmax(steered_logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
         label_match = ((info["support_idx"] == labels.unsqueeze(-1)) & info["support_mask"])
         covered = label_match.any(dim=-1)
 
-    f_ex, f_time = compute_first_target_positions(target_ids)
-    if f_ex.numel() > 0:
-        first_hidden = hidden[f_ex, f_time, :]
-        first_kwargs = _build_steering_call_kwargs(
-            steering_model.compute_support_reranking,
-            last_hidden=first_hidden,
-            context=enc_info,
-            example_idx=f_ex,
-            force_labels=None,
-        )
-        first_info = steering_model.compute_support_reranking(**first_kwargs)
-        if hasattr(steering_model, "_full_vocab_pred_tokens"):
-            first_pred = steering_model._full_vocab_pred_tokens(
-                support_idx=first_info["support_idx"],
-                support_mask=first_info["support_mask"],
-                steered_support_logits=first_info["steered_support_logits"],
-                top_ext_idx=first_info["top_ext_idx"],
-                top_ext_logits=first_info["top_ext_logits"],
-            )
-        else:
-            first_logits = first_info["base_logits"].clone()
-            first_logits.scatter_add_(dim=-1, index=first_info["support_idx"], src=first_info["delta_support"].to(first_logits.dtype))
-            first_pred = first_logits.argmax(dim=-1)
-        first_labels = target_ids[f_ex, f_time]
-        first_token_correct = int((first_pred == first_labels).sum().item())
-        first_token_total = int(first_labels.numel())
-    else:
-        first_token_correct = 0
-        first_token_total = 0
-
     return {
         "seq_lp": normalize_seq_logprobs(token_lp, ex_idx, batch_size),
-        "token_correct": int((pred == labels).sum().item()),
         "total_tokens": int(labels.numel()),
         "covered_tokens": int(covered.sum().item()),
         "support_k_sum": float(info["k_counts"].float().sum().item()),
         "entropy_sum": float(info["norm_entropy"].float().sum().item()),
-        "first_token_correct": first_token_correct,
-        "first_token_total": first_token_total,
     }
 
 
@@ -1949,10 +1838,6 @@ def evaluate_base_policy_rows(
     collator = train_module.PreferenceCollator(tokenizer, train_args)
     loader = DataLoader(ListDataset(rows), batch_size=max(1, int(batch_size)), shuffle=False, collate_fn=collator)
 
-    total_tokens = 0
-    total_correct = 0
-    total_first = 0
-    total_first_correct = 0
     total_examples = 0
     total_pref_correct = 0
 
@@ -1970,16 +1855,10 @@ def evaluate_base_policy_rows(
             attention_mask=batch["rejected_attention_mask"],
             target_ids=batch["rejected_target_ids"],
         )
-        total_correct += chosen["token_correct"]
-        total_tokens += chosen["total_tokens"]
-        total_first_correct += chosen["first_token_correct"]
-        total_first += chosen["first_token_total"]
         total_examples += int(chosen["seq_lp"].numel())
         total_pref_correct += int((chosen["seq_lp"] > rejected["seq_lp"]).sum().item())
 
     return {
-        "policy_token_acc": float(total_correct / max(1, total_tokens)),
-        "policy_first_token_acc": float(total_first_correct / max(1, total_first)),
         "policy_preference_acc": float(total_pref_correct / max(1, total_examples)),
         "policy_coverage": 1.0,
     }
@@ -2000,10 +1879,6 @@ def evaluate_cos_policy_rows(
         return {}
     collator = train_module.PreferenceCollator(tokenizer, train_args)
 
-    total_tokens = 0
-    total_correct = 0
-    total_first = 0
-    total_first_correct = 0
     total_examples = 0
     total_pref_correct = 0
 
@@ -2034,16 +1909,10 @@ def evaluate_cos_policy_rows(
             ctx_target_ids=ctx_batch["rejected_target_ids"],
             cos_lambda=cos_lambda,
         )
-        total_correct += chosen["token_correct"]
-        total_tokens += chosen["total_tokens"]
-        total_first_correct += chosen["first_token_correct"]
-        total_first += chosen["first_token_total"]
         total_examples += int(chosen["seq_lp"].numel())
         total_pref_correct += int((chosen["seq_lp"] > rejected["seq_lp"]).sum().item())
 
     return {
-        "policy_token_acc": float(total_correct / max(1, total_tokens)),
-        "policy_first_token_acc": float(total_first_correct / max(1, total_first)),
         "policy_preference_acc": float(total_pref_correct / max(1, total_examples)),
         "policy_coverage": 1.0,
     }
@@ -2138,9 +2007,6 @@ def evaluate_steering_policy_rows(
     loader = DataLoader(ListDataset(rows), batch_size=max(1, int(batch_size)), shuffle=False, collate_fn=collator)
 
     total_tokens = 0
-    total_correct = 0
-    total_first = 0
-    total_first_correct = 0
     total_examples = 0
     total_pref_correct = 0
     total_covered = 0
@@ -2169,10 +2035,7 @@ def evaluate_steering_policy_rows(
             target_ids=batch["rejected_target_ids"],
             enc_info=enc_info,
         )
-        total_correct += chosen["token_correct"]
         total_tokens += chosen["total_tokens"]
-        total_first_correct += chosen["first_token_correct"]
-        total_first += chosen["first_token_total"]
         total_examples += int(chosen["seq_lp"].numel())
         total_pref_correct += int((chosen["seq_lp"] > rejected["seq_lp"]).sum().item())
         total_covered += chosen["covered_tokens"]
@@ -2183,8 +2046,6 @@ def evaluate_steering_policy_rows(
         return {}
 
     return {
-        "policy_token_acc": float(total_correct / max(1, total_tokens)),
-        "policy_first_token_acc": float(total_first_correct / max(1, total_first)),
         "policy_preference_acc": float(total_pref_correct / max(1, total_examples)),
         "policy_coverage": float(total_covered / max(1, total_tokens)),
         "policy_support_size_mean": float(total_support_k_sum / max(1, total_tokens)),
@@ -2202,31 +2063,21 @@ def summarize_generation_system(
     bertscore_f1: Sequence[float],
     rouge1_f1: Sequence[float],
     rougeL_f1: Sequence[float],
-    pos_sim: Sequence[float],
-    neg_sim: Sequence[float],
 ) -> Dict[str, float]:
     if not predictions:
         return {"n_rows": 0, "n_users": 0}
 
-    margins = [float(a - b) for a, b in zip(pos_sim, neg_sim)]
     users: Dict[str, List[int]] = defaultdict(list)
-    drift_flags, first_stability_flags, empty_flags = [], [], []
+    drift_flags, empty_flags = [], []
 
-    for idx, p in enumerate(predictions):
-        users[p["user_id"]].append(idx)
+    for p in predictions:
+        users[p["user_id"]].append(1)
         empty_flags.append(1.0 if normalize_ws(p["generated"]) == "" else 0.0)
         ref_lang = dominant_script(p.get("chosen", "") or p.get("prompt_text", ""))
         gen_lang = dominant_script(p.get("generated", ""))
-        first_lang = first_content_script(p.get("generated", ""))
         drift = float(ref_lang not in {"empty", "other"} and gen_lang not in {"empty", "other"} and ref_lang != gen_lang)
-        stable = float(ref_lang not in {"empty", "other"} and first_lang not in {"empty", "other"} and ref_lang == first_lang)
         drift_flags.append(drift)
-        first_stability_flags.append(stable)
 
-    prefsim_acc = sum(1.0 if m > 0 else 0.0 for m in margins) / len(margins)
-    prefsim_margin = sum(margins) / len(margins)
-    macro_prefsim_acc = sum(sum(1.0 if margins[i] > 0 else 0.0 for i in idxs) / len(idxs) for idxs in users.values()) / len(users)
-    macro_prefsim_margin = sum(sum(margins[i] for i in idxs) / len(idxs) for idxs in users.values()) / len(users)
     mean_bertscore_f1 = sum(float(x) for x in bertscore_f1) / len(bertscore_f1)
     mean_rouge1_f1 = sum(float(x) for x in rouge1_f1) / len(rouge1_f1)
     mean_rougeL_f1 = sum(float(x) for x in rougeL_f1) / len(rougeL_f1)
@@ -2235,23 +2086,17 @@ def summarize_generation_system(
     return {
         "n_rows": int(len(predictions)),
         "n_users": int(len(users)),
-        "prefsim_acc": float(prefsim_acc),
-        "prefsim_margin": float(prefsim_margin),
-        "macro_user_prefsim_acc": float(macro_prefsim_acc),
-        "macro_user_prefsim_margin": float(macro_prefsim_margin),
         "bertscore_f1": float(mean_bertscore_f1),
         "rouge1_f1": float(mean_rouge1_f1),
         "rougeL_f1": float(mean_rougeL_f1),
         "mean_gen_len": float(mean_gen_len),
         "empty_rate": float(sum(empty_flags) / len(empty_flags)),
         "drift_rate": float(sum(drift_flags) / len(drift_flags)),
-        "first_token_language_stability": float(sum(first_stability_flags) / len(first_stability_flags)),
     }
 
 
 def attach_generation_metrics(
     predictions: List[Dict[str, Any]],
-    prefsim_scorer: PrefSimScorer,
     bert_scorer: Any,
     rouge_metric: Any,
     bertscore_batch_size: int,
@@ -2261,11 +2106,6 @@ def attach_generation_metrics(
 
     cands = [normalize_ws(p["generated"]) for p in predictions]
     pos_refs = [normalize_ws(p["chosen"]) for p in predictions]
-    neg_refs = [normalize_ws(p["rejected"]) for p in predictions]
-
-    pos_sim_t, neg_sim_t = prefsim_scorer.batch_similarity(cands, pos_refs, neg_refs)
-    pos_sim = pos_sim_t.tolist()
-    neg_sim = neg_sim_t.tolist()
 
     empty_idx = [i for i, c in enumerate(cands) if c == ""]
     nonempty_idx = [i for i, c in enumerate(cands) if c != ""]
@@ -2290,20 +2130,14 @@ def attach_generation_metrics(
     for i in range(len(predictions)):
         ref_lang = dominant_script(predictions[i].get("chosen", "") or predictions[i].get("prompt_text", ""))
         gen_lang = dominant_script(predictions[i]["generated"])
-        first_lang = first_content_script(predictions[i]["generated"])
-        predictions[i]["prefsim_pos_sim"] = float(pos_sim[i])
-        predictions[i]["prefsim_neg_sim"] = float(neg_sim[i])
-        predictions[i]["prefsim_margin"] = float(pos_sim[i] - neg_sim[i])
-        predictions[i]["prefsim_prefers_chosen"] = bool(pos_sim[i] > neg_sim[i])
         predictions[i]["bertscore_f1"] = float(f1_list[i])
         predictions[i]["rouge1_f1"] = float(rouge1_list[i])
         predictions[i]["rougeL_f1"] = float(rougeL_list[i])
         predictions[i]["generated_language"] = gen_lang
         predictions[i]["reference_language"] = ref_lang
         predictions[i]["language_drifted"] = bool(ref_lang not in {"empty", "other"} and gen_lang not in {"empty", "other"} and ref_lang != gen_lang)
-        predictions[i]["first_token_language_stable"] = bool(ref_lang not in {"empty", "other"} and first_lang not in {"empty", "other"} and ref_lang == first_lang)
 
-    metrics = summarize_generation_system(predictions, f1_list, rouge1_list, rougeL_list, pos_sim, neg_sim)
+    metrics = summarize_generation_system(predictions, f1_list, rouge1_list, rougeL_list)
     return predictions, metrics
 
 
@@ -2384,7 +2218,6 @@ def main() -> None:
     use_rag = cli.icl_rag or ("icl_rag" in cli.systems)
     rag_retriever = DenseRetriever(cli.icl_rag_retriever_model, metric_device) if use_rag else None
 
-    prefsim_scorer = PrefSimScorer(cli.prefsim_model, metric_device)
     if rouge_scorer is None:
         raise ImportError("rouge-score is not installed. Please install `rouge-score`.")
     rouge_metric = rouge_scorer.RougeScorer(["rouge1", "rougeL"], use_stemmer=True)
@@ -2406,8 +2239,7 @@ def main() -> None:
         "no_support_budget_loop": bool(cli.no_support_budget_loop),
         "systems": list(cli.systems),
         "cos_lambda": float(cli.cos_lambda),
-        "policy_metric_definition": "policy_preference_acc uses mean target-token logprob per response; policy_token_acc and policy_first_token_acc are teacher-forced full-vocabulary accuracies for base / icl / cos / steer_distill / lora_sft.",
-        "prefsim_model": cli.prefsim_model,
+        "policy_metric_definition": "policy_preference_acc uses mean target-token logprob per response for base / icl / cos / steer_distill / lora_sft.",
         "bertscore_lang": cli.bertscore_lang,
         "bertscore_model_type": cli.bertscore_model_type,
         "budgets": {},
@@ -2495,7 +2327,6 @@ def main() -> None:
             )
             predictions, gen_metrics = attach_generation_metrics(
                 predictions=predictions,
-                prefsim_scorer=prefsim_scorer,
                 bert_scorer=bert_scorer,
                 rouge_metric=rouge_metric,
                 bertscore_batch_size=cli.bertscore_batch_size,
