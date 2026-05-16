@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--output_dir", type=str, required=True)
     ap.add_argument("--resume_steering", type=str, default="")
 
-    ap.add_argument("--model_name", type=str, default="Qwen/Qwen3.5-0.8B-Base")
+    ap.add_argument("--model_name", type=str, default="Qwen/Qwen3-0.6B")
     ap.add_argument("--trust_remote_code", action="store_true")
     ap.add_argument("--attn_implementation", type=str, default="sdpa", choices=["sdpa", "flash_attention_2", "eager"])
     ap.add_argument("--dtype", type=str, default="bfloat16", choices=["bfloat16", "float16", "float32"])

@@ -3,3 +3,12 @@ __pycache__/
 
 data/
 runs/
+wandb/
+
+logs/
+log/
+Log/
+
+models/
+model/
+checkpoints/
