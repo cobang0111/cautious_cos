@@ -495,18 +495,9 @@ def main() -> None:
         selected_version = st.selectbox("Version", versions)
 
         version_df = model_df[model_df["version_name"] == selected_version]
-        run_options = sorted(version_df["run_dir"].unique().tolist())
-        run_labels = version_df.drop_duplicates("run_dir").set_index("run_dir")["run_label"].to_dict()
-        selected_run_dir = st.selectbox(
-            "Run / eval config",
-            run_options,
-            format_func=lambda x: f"{run_labels.get(x, Path(x).name)} | {Path(x).name}",
-        )
-
-        run_df = version_df[version_df["run_dir"] == selected_run_dir]
-        datasets = sorted(run_df["dataset"].unique().tolist())
-        systems = sorted(run_df["system"].unique().tolist())
-        budgets = sorted(run_df["budget"].unique().tolist())
+        datasets = sorted(version_df["dataset"].unique().tolist())
+        systems = sorted(version_df["system"].unique().tolist())
+        budgets = sorted(version_df["budget"].unique().tolist())
         selected_datasets = st.multiselect("Datasets", datasets, default=datasets)
         selected_systems = st.multiselect(
             "Systems",
@@ -516,10 +507,10 @@ def main() -> None:
         )
         selected_budgets = st.multiselect("Support budgets", budgets, default=budgets)
 
-    filtered = run_df[
-        run_df["dataset"].isin(selected_datasets)
-        & run_df["system"].isin(selected_systems)
-        & run_df["budget"].isin(selected_budgets)
+    filtered = version_df[
+        version_df["dataset"].isin(selected_datasets)
+        & version_df["system"].isin(selected_systems)
+        & version_df["budget"].isin(selected_budgets)
     ].copy()
 
     if filtered.empty:
